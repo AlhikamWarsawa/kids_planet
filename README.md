@@ -4,7 +4,7 @@ This platform is a web based educational gaming portal for children, featuring a
 
 ---
 
-## 📁 Repository Structure (Overview)
+## Repository Structure (Overview)
 
 ```
 .
@@ -22,7 +22,7 @@ This platform is a web based educational gaming portal for children, featuring a
 
 ---
 
-## 🧠 Tech Stack
+## Tech Stack
 
 ### Frontend (Player & Admin)
 
@@ -46,17 +46,15 @@ This platform is a web based educational gaming portal for children, featuring a
 
 ---
 
-## 🚀 Development
+## Development
 
 ```bash
 make up
-make ps
-make logs
 ```
 
 ---
 
-## 📄 Documentation
+## Documentation
 
 * `docs/ARCHITECTURE.md`: system architecture overview
 * `docs/RUNBOOK.md`: how to run & troubleshoot the system
