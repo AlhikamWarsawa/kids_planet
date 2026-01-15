@@ -1,9 +1,8 @@
-FROM golang:tip-alpine3.23
+FROM golang:1.25.5-alpine
 
 WORKDIR /app
 
 RUN apk add --no-cache git curl
-
 RUN go install github.com/air-verse/air@latest
 
 COPY go.mod go.sum ./
@@ -12,5 +11,4 @@ RUN go mod download
 COPY . .
 
 EXPOSE 8080
-
 CMD ["air", "-c", ".air.toml"]
