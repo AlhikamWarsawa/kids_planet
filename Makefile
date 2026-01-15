@@ -1,7 +1,7 @@
 g:
 	git pull
 	git add .
-	git commit -m "changelog"
+	git commit -m "change readme"
 	git push
 
 up:

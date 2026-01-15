@@ -24,24 +24,44 @@ This platform is a web based educational gaming portal for children, featuring a
 
 ## 🧠 Tech Stack
 
-### Frontend
+### Frontend (Player & Admin)
 
-* **TypeScript**
-* **SvelteKit**
-* **Vite**
-* **Nginx**
+* **TypeScript**: type-safe frontend development
+* **SvelteKit**: main frontend framework (SPA static build)
+* **Vite**: fast bundler & dev server
+* **Nginx**: static file serving & reverse proxy
 
-### Backend
+### Backend (API Service)
 
-* **Go (Golang)**
-* **Fiber** (HTTP framework)
-* **PostgreSQL** (Main Database)
+* **Go (Golang)**: core backend language
+* **Fiber**: high-performance HTTP framework
+* **PostgreSQL**: primary relational database (metadata, events, submissions)
 
 ### Dev & Infrastructure
 
-* **Docker & Docker Compose**
-* Environment-based configuration
-* Planned integrations: **Valkey**, **MinIO**
+* **Docker & Docker Compose**: local development & deployment
+* **Valkey**: in-memory store (leaderboard, rate limiting, cache)
+* **MinIO**: object storage (HTML5 game assets & uploads)
+* **Environment-based configuration** (`.env`)
+
+---
+
+## 🚀 Development
+
+```bash
+make up
+make ps
+make logs
+```
+
+---
+
+## 📄 Documentation
+
+* `docs/ARCHITECTURE.md`: system architecture overview
+* `docs/RUNBOOK.md`: how to run & troubleshoot the system
+* `docs/CHANGELOG.md`: daily development progress
+* `docs/GAME_INTEGRATION.md`: A technical guide for game developers to integrate their HTML5 games with the platform.
 
 ---
 ## License
