@@ -1,7 +1,7 @@
 g:
 	git pull
 	git add .
-	git commit -m "Docker Dev Stack + DB Connectivity"
+	git commit -m "changelog"
 	git push
 
 up:
