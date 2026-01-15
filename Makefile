@@ -1,7 +1,7 @@
 g:
 	git pull
 	git add .
-	git commit -m "change readme"
+	git commit -m "update architecture docs"
 	git push
 
 up:
