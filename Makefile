@@ -1,7 +1,7 @@
 g:
 	git pull
 	git add .
-	git commit -m "DB migrations V1"
+	git commit -m "Database Foundation + Repo Scaffolding"
 	git push
 
 up:
