@@ -2,7 +2,6 @@
 
 CREATE TYPE user_role AS ENUM ('admin', 'player');
 CREATE TYPE user_status AS ENUM ('active', 'inactive');
-
 CREATE TYPE game_status AS ENUM ('draft', 'active', 'archived');
 CREATE TYPE game_difficulty AS ENUM ('easy', 'medium', 'hard');
 
@@ -106,10 +105,3 @@ CREATE TABLE game_education_categories
             REFERENCES education_categories (id)
             ON DELETE CASCADE
 );
-
--- INDEXES
-
-CREATE INDEX idx_games_status ON games (status);
-CREATE INDEX idx_games_age_category ON games (age_category_id);
-CREATE INDEX idx_gec_game_id ON game_education_categories (game_id);
-CREATE INDEX idx_gec_education_id ON game_education_categories (education_category_id);

@@ -1,7 +1,7 @@
 g:
 	git pull
 	git add .
-	git commit -m "Database Foundation + Repo Scaffolding"
+	git commit -m "Update Database Schemes and Index"
 	git push
 
 up:
