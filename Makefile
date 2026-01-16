@@ -1,7 +1,7 @@
 g:
 	git pull
 	git add .
-	git commit -m "update architecture docs"
+	git commit -m "DB migrations V1"
 	git push
 
 up:
@@ -10,3 +10,6 @@ up:
 
 ps:
 	docker compose ps
+
+psql:
+	docker exec -it planet_postgres psql -U admin -d kids_planet

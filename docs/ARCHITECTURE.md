@@ -4,7 +4,7 @@ This document serves as a critical, living template designed to equip agents wit
 ## 1. Project Structure
 This section provides a high-level overview of the project's directory and file structure, categorised by architectural layer or major functional area. It is essential for quickly navigating the codebase, locating relevant files, and understanding the overall organization and separation of concerns.
 
-
+```
 [Project Root]/
 ├── backend/              # Contains all server-side code and APIs
 │   ├── src/              # Main source code for backend services
@@ -34,7 +34,7 @@ This section provides a high-level overview of the project's directory and file 
 ├── .gitignore            # Specifies intentionally untracked files to ignore
 ├── README.md             # Project overview and quick start guide
 └── ARCHITECTURE.md       # This document
-
+```
 
 
 ## 2. High-Level System Diagram

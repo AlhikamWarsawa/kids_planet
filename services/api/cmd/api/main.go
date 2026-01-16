@@ -13,13 +13,12 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/recover"
 
 	"github.com/ZygmaCore/kids_planet/services/api/internal/clients"
+	"github.com/ZygmaCore/kids_planet/services/api/internal/repos"
 )
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-
-	// _ = godotenv.Load()
 
 	db, err := clients.NewPostgres(ctx)
 	if err != nil {
@@ -30,6 +29,11 @@ func main() {
 	}()
 
 	log.Println("postgres connected")
+
+	userRepo := repos.NewUserRepo(db)
+	gameRepo := repos.NewGameRepo(db)
+	_ = userRepo
+	_ = gameRepo
 
 	app := fiber.New(fiber.Config{
 		AppName:      "game-portal-api",
