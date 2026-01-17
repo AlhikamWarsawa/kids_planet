@@ -4,10 +4,10 @@ This platform is a web based educational gaming portal for children, featuring a
 
 ---
 
-## Repository Structure (Overview)
+## Repository Structure
 
 ```
-.
+kids-planet
 ├── apps/
 │   └── web/              # Frontend (SvelteKit)
 ├── services/
@@ -58,7 +58,6 @@ make up
 
 * `docs/ARCHITECTURE.md`: system architecture overview
 * `docs/RUNBOOK.md`: how to run & troubleshoot the system
-* `docs/CHANGELOG.md`: daily development progress
 * `docs/GAME_INTEGRATION.md`: A technical guide for game developers to integrate their HTML5 games with the platform.
 
 ---

@@ -24,9 +24,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("startup failed (postgres): %v", err)
 	}
-	defer func() {
-		_ = db.Close()
-	}()
+	defer func() { _ = db.Close() }()
 
 	log.Println("postgres connected")
 
@@ -56,10 +54,11 @@ func main() {
 	if port == "" {
 		port = "8080"
 	}
+	addr := "0.0.0.0:" + port
+	log.Printf("API listening on %s", addr)
 
 	go func() {
-		log.Printf("API listening on :%s", port)
-		if err := app.Listen(":" + port); err != nil {
+		if err := app.Listen(addr); err != nil {
 			log.Printf("server stopped: %v", err)
 		}
 	}()
