@@ -106,6 +106,16 @@ services:
       - api
     restart: unless-stopped
 
+  swagger-ui:
+    image: swaggerapi/swagger-ui:latest
+    container_name: planet_swagger
+    environment:
+      - SWAGGER_JSON=/openapi/openapi.yaml
+    volumes:
+      - ./services/api/openapi/openapi.yaml:/openapi/openapi.yaml:ro
+    ports:
+      - "8081:8080"
+
 volumes:
   postgres_data:
   minio_data:

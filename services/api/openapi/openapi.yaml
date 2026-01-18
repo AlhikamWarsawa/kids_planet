@@ -1,9 +1,1043 @@
-openapi: 3.1.0
+openapi: 3.0.3
+
 info:
-  title: Kids_Planet
-  description: Kids_Planet
-  version: 1.0.0
+  title: Kids Planet Game Portal API
+  version: 0.2.0
+  description:
+    API for Kids Planet educational HTML5 game portal (Player + Admin + Game SDK).
+    Served behind Nginx reverse proxy where /api/* is forwarded to the Go API root.
+
 servers:
-  - url: 'https'
+  - url: /api
+    description: Behind Nginx reverse proxy
+
+tags:
+  - name: System
+  - name: Auth
+  - name: Sessions
+  - name: Games
+  - name: Leaderboard
+  - name: Achievements
+  - name: Analytics
+  - name: Admin Dashboard
+  - name: Admin Games
+  - name: Admin Categories
+  - name: Admin Achievements
+  - name: Admin Moderation
+
 paths:
-  
+  /health:
+    get:
+      tags: [System]
+      summary: Health check
+      description: |
+        Liveness endpoint. In non-prod, you can simulate an error via ?fail=1.
+      parameters:
+        - in: query
+          name: fail
+          schema: { type: string, example: "1" }
+          required: false
+          description: Non-prod only. When set to "1", returns BAD_REQUEST (simulated).
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuccessResponse" }
+              examples:
+                ok:
+                  value:
+                    data:
+                      ok: true
+                      service: api
+                      env: dev
+                      time: "2026-01-17T04:09:24Z"
+        "400":
+          description: Simulated error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+  # -------------------------
+  # Public catalog & play
+  # -------------------------
+  /games:
+    get:
+      tags: [Games]
+      summary: List games for catalog (grid)
+      description: |
+        Public endpoint for catalog listing with filter & sort.
+        Typically returns only active games, optionally only free games for guest mode.
+      parameters:
+        - in: query
+          name: age_category_id
+          schema: { type: integer, format: int64 }
+          required: false
+        - in: query
+          name: education_category_ids
+          schema:
+            type: array
+            items: { type: integer, format: int64 }
+          style: form
+          explode: false
+          required: false
+          description: "Comma-separated IDs. Example: education_category_ids=1,2,3"
+        - in: query
+          name: free
+          schema: { type: boolean }
+          required: false
+          description: Filter free games only (useful for guest).
+        - in: query
+          name: sort
+          schema:
+            type: string
+            enum: [newest, popularity]
+            default: newest
+          required: false
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 24 }
+          required: false
+        - in: query
+          name: offset
+          schema: { type: integer, minimum: 0, default: 0 }
+          required: false
+      responses:
+        "200":
+          description: List of games
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessResponse"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items: { $ref: "#/components/schemas/GameCard" }
+                          paging:
+                            $ref: "#/components/schemas/Paging"
+        "400":
+          description: Invalid filter
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+  /games/{id}:
+    get:
+      tags: [Games]
+      summary: Get game detail
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        "200":
+          description: Game detail
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessResponse"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/GameDetail" }
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+  # -------------------------
+  # Auth (Admin + optional Player)
+  # -------------------------
+  /auth/admin/login:
+    post:
+      tags: [Auth]
+      summary: Admin login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LoginRequest" }
+      responses:
+        "200":
+          description: Admin access token
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessResponse"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/AuthToken" }
+        "401":
+          description: Invalid credentials
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+  /auth/player/login:
+    post:
+      tags: [Auth]
+      summary: Player login (optional)
+      description: Email + parent PIN (lightweight).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PlayerLoginRequest" }
+      responses:
+        "200":
+          description: Player access token
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessResponse"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/AuthToken" }
+        "401":
+          description: Invalid credentials
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+  /auth/player/register:
+    post:
+      tags: [Auth]
+      summary: Player register (optional)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PlayerRegisterRequest" }
+      responses:
+        "200":
+          description: Player created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuccessResponse" }
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "409":
+          description: Email already exists
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+  # -------------------------
+  # Sessions (play token for game iframe)
+  # -------------------------
+  /sessions/start:
+    post:
+      tags: [Sessions]
+      summary: Start play session (guest or logged-in)
+      description: Returns short-lived play_token for submitting score/events.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SessionStartRequest" }
+      responses:
+        "200":
+          description: Play token created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessResponse"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/PlaySession" }
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "404":
+          description: Game not found or not playable
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+  # -------------------------
+  # Leaderboard
+  # -------------------------
+  /leaderboard/submit:
+    post:
+      tags: [Leaderboard]
+      summary: Submit score
+      description: |
+        Called by HTML5 game via SDK. Requires play_token.
+        Server may flag suspicious submissions.
+      security:
+        - playTokenAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LeaderboardSubmitRequest" }
+      responses:
+        "200":
+          description: Submission accepted
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessResponse"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/LeaderboardSubmitResult" }
+        "400":
+          description: Invalid score payload
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "401":
+          description: Missing/invalid play token
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "403":
+          description: Token game mismatch / forbidden
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+  /leaderboard/{game_id}:
+    get:
+      tags: [Leaderboard]
+      summary: Get leaderboard for a game
+      parameters:
+        - in: path
+          name: game_id
+          required: true
+          schema: { type: integer, format: int64 }
+        - in: query
+          name: period
+          required: false
+          schema:
+            type: string
+            enum: [daily, weekly]
+            default: weekly
+        - in: query
+          name: limit
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+      responses:
+        "200":
+          description: Leaderboard entries
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessResponse"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/LeaderboardResponse" }
+        "404":
+          description: Game not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+  # -------------------------
+  # Achievements
+  # -------------------------
+  /achievement/unlock:
+    post:
+      tags: [Achievements]
+      summary: Unlock achievement event (from game)
+      description: Called by HTML5 game. Requires play_token.
+      security:
+        - playTokenAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AchievementUnlockRequest" }
+      responses:
+        "200":
+          description: Unlock accepted
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuccessResponse" }
+        "400":
+          description: Invalid payload
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "401":
+          description: Invalid play token
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+  /achievement/player/{player_id}:
+    get:
+      tags: [Achievements]
+      summary: List player achievements (optional player account)
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: player_id
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        "200":
+          description: Player achievements
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessResponse"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/PlayerAchievement" }
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+  # -------------------------
+  # Analytics (event-based)
+  # -------------------------
+  /analytics/event:
+    post:
+      tags: [Analytics]
+      summary: Track analytics event (from game)
+      description: Called by HTML5 game. Requires play_token.
+      security:
+        - playTokenAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AnalyticsEventRequest" }
+      responses:
+        "200":
+          description: Event accepted
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuccessResponse" }
+        "400":
+          description: Invalid event payload
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "401":
+          description: Invalid play token
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+  # =========================
+  # Admin (JWT bearerAuth)
+  # =========================
+  /admin/dashboard/overview:
+    get:
+      tags: [Admin Dashboard]
+      summary: Admin dashboard overview
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Overview stats
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessResponse"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/AdminOverview" }
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "403":
+          description: Forbidden (not admin)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+  /admin/games:
+    get:
+      tags: [Admin Games]
+      summary: List games (admin)
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [draft, active, archived]
+          required: false
+      responses:
+        "200":
+          description: Game list
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuccessResponse" }
+    post:
+      tags: [Admin Games]
+      summary: Create game metadata
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AdminGameUpsertRequest" }
+      responses:
+        "200":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuccessResponse" }
+
+  /admin/games/{id}:
+    put:
+      tags: [Admin Games]
+      summary: Update game metadata
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer, format: int64 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AdminGameUpsertRequest" }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuccessResponse" }
+    delete:
+      tags: [Admin Games]
+      summary: Delete game (optional hard delete; can also archive)
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuccessResponse" }
+
+  /admin/games/{id}/upload:
+    post:
+      tags: [Admin Games]
+      summary: Upload HTML5 game zip (store + extract)
+      description: |
+        Uploads a .zip, stores to MinIO, extracts safely to a prefix, and sets game_url.
+        Multipart form upload.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer, format: int64 }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        "200":
+          description: Upload processed
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessResponse"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          game_url:
+                            type: string
+                            example: "https://example.com/games/123/current/index.html"
+                          version:
+                            type: string
+                            example: "20260117_040900"
+        "400":
+          description: Invalid zip / missing index.html / zip-slip detected
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+  /admin/education-categories:
+    get:
+      tags: [Admin Categories]
+      summary: List education categories
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Categories
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuccessResponse" }
+    post:
+      tags: [Admin Categories]
+      summary: Create education category
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EducationCategoryUpsertRequest" }
+      responses:
+        "200":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuccessResponse" }
+
+  /admin/age-categories:
+    get:
+      tags: [Admin Categories]
+      summary: List age categories
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Age categories
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuccessResponse" }
+    post:
+      tags: [Admin Categories]
+      summary: Create age category
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AgeCategoryUpsertRequest" }
+      responses:
+        "200":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuccessResponse" }
+
+  /admin/achievements:
+    get:
+      tags: [Admin Achievements]
+      summary: List achievements (stub)
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Achievements list
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuccessResponse" }
+        "501":
+          description: Not implemented
+    post:
+      tags: [Admin Achievements]
+      summary: Create achievement (stub)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AdminAchievementUpsertRequest" }
+      responses:
+        "200":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuccessResponse" }
+        "501":
+          description: Not implemented
+
+  /admin/moderation/flagged:
+    get:
+      tags: [Admin Moderation]
+      summary: List flagged leaderboard submissions
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Flagged submissions
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuccessResponse" }
+
+  /admin/moderation/remove-score:
+    post:
+      tags: [Admin Moderation]
+      summary: Remove a score from leaderboard (moderation)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ModerationRemoveScoreRequest" }
+      responses:
+        "200":
+          description: Removed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuccessResponse" }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Admin/Player access token
+    playTokenAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Short-lived play token for game iframe submissions (score/events)
+
+  schemas:
+    SuccessResponse:
+      type: object
+      properties:
+        data: { nullable: true }
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              example: BAD_REQUEST
+            message:
+              type: string
+              example: invalid input
+
+    Paging:
+      type: object
+      properties:
+        limit: { type: integer, example: 24 }
+        offset: { type: integer, example: 0 }
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, format: password }
+
+    PlayerLoginRequest:
+      type: object
+      required: [email, parent_pin]
+      properties:
+        email: { type: string, format: email }
+        parent_pin: { type: string, minLength: 4, maxLength: 12 }
+
+    PlayerRegisterRequest:
+      type: object
+      required: [email, parent_pin, nickname]
+      properties:
+        email: { type: string, format: email }
+        parent_pin: { type: string, minLength: 4, maxLength: 12 }
+        nickname: { type: string, minLength: 2, maxLength: 50 }
+        age: { type: integer, minimum: 1, maximum: 99 }
+
+    AuthToken:
+      type: object
+      properties:
+        access_token: { type: string }
+        token_type: { type: string, example: Bearer }
+        expires_in: { type: integer, example: 604800 }
+
+    SessionStartRequest:
+      type: object
+      required: [game_id]
+      properties:
+        game_id: { type: integer, format: int64 }
+        mode:
+          type: string
+          enum: [guest, player]
+          default: guest
+        client:
+          type: object
+          properties:
+            user_agent: { type: string }
+            ip: { type: string }
+
+    PlaySession:
+      type: object
+      properties:
+        session_id: { type: string, example: "sess_01J..." }
+        game_id: { type: integer, format: int64 }
+        play_token: { type: string, description: "Short-lived token for score/events" }
+        expires_in: { type: integer, example: 7200 }
+
+    EducationCategory:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string }
+        icon: { type: string }
+        color: { type: string }
+
+    AgeCategory:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        label: { type: string, example: "7+" }
+        min_age: { type: integer, example: 7 }
+        max_age: { type: integer, nullable: true, example: 10 }
+
+    GameCard:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        title: { type: string }
+        thumbnail: { type: string }
+        min_age_label: { type: string, example: "7+" }
+        difficulty: { type: string, nullable: true, example: easy }
+        free: { type: boolean, example: true }
+        education_categories:
+          type: array
+          items: { $ref: "#/components/schemas/EducationCategory" }
+        popularity_score:
+          type: integer
+          description: Simple popularity metric (e.g., last 7d plays)
+          example: 123
+
+    GameDetail:
+      allOf:
+        - $ref: "#/components/schemas/GameCard"
+        - type: object
+          properties:
+            slug: { type: string }
+            description: { type: string }
+            game_url: { type: string, description: "URL served via /games/* behind Nginx/MinIO" }
+            status:
+              type: string
+              enum: [draft, active, archived]
+            age_category: { $ref: "#/components/schemas/AgeCategory" }
+
+    LeaderboardSubmitRequest:
+      type: object
+      required: [game_id, score, timestamp]
+      properties:
+        game_id: { type: integer, format: int64 }
+        score: { type: integer, minimum: 0 }
+        timestamp: { type: string, format: date-time }
+        meta:
+          type: object
+          properties:
+            level: { type: string }
+            duration_sec: { type: integer, minimum: 0 }
+
+    LeaderboardSubmitResult:
+      type: object
+      properties:
+        accepted: { type: boolean, example: true }
+        flagged: { type: boolean, example: false }
+        flag_reason: { type: string, nullable: true }
+        best_score:
+          type: integer
+          description: Best score stored for this user/session in the period
+          example: 1200
+
+    LeaderboardEntry:
+      type: object
+      properties:
+        rank: { type: integer, example: 1 }
+        member: { type: string, example: "p:123" }
+        score: { type: integer, example: 9999 }
+
+    LeaderboardResponse:
+      type: object
+      properties:
+        game_id: { type: integer, format: int64 }
+        period: { type: string, example: weekly }
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/LeaderboardEntry" }
+
+    AchievementUnlockRequest:
+      type: object
+      required: [game_id, achievement_id, timestamp]
+      properties:
+        game_id: { type: integer, format: int64 }
+        achievement_id: { type: integer, format: int64 }
+        timestamp: { type: string, format: date-time }
+        condition:
+          type: object
+          description: Optional debug payload from game
+          properties:
+            score: { type: integer }
+            plays: { type: integer }
+            time_spent_sec: { type: integer }
+
+    PlayerAchievement:
+      type: object
+      properties:
+        achievement_id: { type: integer, format: int64 }
+        game_id: { type: integer, format: int64 }
+        unlocked_at: { type: string, format: date-time }
+        reward:
+          type: object
+          properties:
+            badge: { type: string }
+            points: { type: integer }
+
+    AnalyticsEventRequest:
+      type: object
+      required: [game_id, event_type, timestamp]
+      properties:
+        game_id: { type: integer, format: int64 }
+        event_type:
+          type: string
+          enum:
+            - game_start
+            - game_end
+            - level_completed
+            - answer_correct
+            - answer_wrong
+            - time_spent
+        timestamp: { type: string, format: date-time }
+        payload:
+          type: object
+          additionalProperties: true
+          description: Event-specific arbitrary payload (kept flexible for MVP)
+
+    AdminOverview:
+      type: object
+      properties:
+        total_active_games: { type: integer, example: 12 }
+        total_players: { type: integer, example: 340 }
+        sessions_today: { type: integer, example: 89 }
+        top_games:
+          type: array
+          items:
+            type: object
+            properties:
+              game_id: { type: integer, format: int64 }
+              title: { type: string }
+              plays: { type: integer }
+
+    AdminGameUpsertRequest:
+      type: object
+      required: [title, age_category_id, education_category_ids, free, status]
+      properties:
+        title: { type: string }
+        slug: { type: string }
+        description: { type: string }
+        thumbnail: { type: string }
+        age_category_id: { type: integer, format: int64 }
+        education_category_ids:
+          type: array
+          items: { type: integer, format: int64 }
+        difficulty:
+          type: string
+          nullable: true
+          description: Optional difficulty label
+        free: { type: boolean }
+        status:
+          type: string
+          enum: [draft, active, archived]
+
+    EducationCategoryUpsertRequest:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        icon: { type: string }
+        color: { type: string }
+
+    AgeCategoryUpsertRequest:
+      type: object
+      required: [label, min_age]
+      properties:
+        label: { type: string, example: "7+" }
+        min_age: { type: integer, example: 7 }
+        max_age: { type: integer, nullable: true, example: 10 }
+
+    AdminAchievementUpsertRequest:
+      type: object
+      required: [game_id, title]
+      properties:
+        game_id: { type: integer, format: int64 }
+        title: { type: string }
+        description: { type: string }
+        rule:
+          type: object
+          description: "JSON rule definition (MVP: stored as JSON)"
+          additionalProperties: true
+        reward:
+          type: object
+          additionalProperties: true
+
+    ModerationRemoveScoreRequest:
+      type: object
+      required: [game_id, member, period]
+      properties:
+        game_id: { type: integer, format: int64 }
+        member:
+          type: string
+          description: Member key (e.g., p:123 or g:sess_abc)
+        period:
+          type: string
+          enum: [daily, weekly]
+        scope:
+          type: string
+          enum: [game, global]
+          default: game

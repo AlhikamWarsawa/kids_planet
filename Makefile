@@ -1,7 +1,7 @@
 g:
 	git pull
 	git add .
-	git commit -m "Full Stack Infra + Nginx Routing"
+	git commit -m "API Structure + Standard Error"
 	git push
 
 up:
@@ -13,6 +13,7 @@ ps:
 
 inf:
 	docker compose -f infra/docker-compose.yml up -d --build
+	docker compose logs
 
 d:
 	docker compose -f infra/docker-compose.yml down
