@@ -22,7 +22,7 @@ CMD ["air", "-c", ".air.toml"]
 # prod
 FROM alpine:3.20 AS prod
 WORKDIR /app
-RUN apk add --no-cache ca-certificates && update-ca-certificates
+RUN apk add --no-cache ca-certificates curl && update-ca-certificates
 COPY --from=builder /out/api /app/api
 EXPOSE 8080
 ENV PORT=8080

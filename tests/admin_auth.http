@@ -1,6 +1,6 @@
 ### Base config
-#@base_url = http://localhost:8080
-@base_url = http://localhost
+@base_url = http://localhost:8080
+#@base_url = http://localhost
 @admin_email = admin@kidsplanet.com
 @admin_password = 12345678
 
@@ -62,11 +62,3 @@ Authorization: Bearer abc
         client.assert(response.status === 401, "Expected 401, got " + response.status);
     });
 %}
-
-
-###
-
-GET http://localhost/api/admin/me
-Authorization: Bearer {{admin_token}}
-
-###

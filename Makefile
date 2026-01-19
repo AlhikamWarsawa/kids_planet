@@ -1,7 +1,7 @@
 g:
 	git pull
 	git add .
-	git commit -m "Admin Auth JWT + Protected Routes"
+	git commit -m "Fix Nginx API Routing"
 	git push
 
 up:

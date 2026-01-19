@@ -11,21 +11,23 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}" ]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
       retries: 10
     restart: unless-stopped
+    networks: [planet_net]
 
   valkey:
     image: valkey/valkey:alpine3.23
     container_name: planet_valkey_infra
     healthcheck:
-      test: [ "CMD", "valkey-cli", "ping" ]
+      test: ["CMD", "valkey-cli", "ping"]
       interval: 10s
       timeout: 3s
       retries: 10
     restart: unless-stopped
+    networks: [planet_net]
 
   minio:
     image: minio/minio:RELEASE.2025-09-07T16-13-09Z-cpuv1
@@ -37,20 +39,22 @@ services:
     volumes:
       - minio_data:/data
     restart: unless-stopped
+    networks: [planet_net]
 
   minio_probe:
     image: curlimages/curl:8.5.0
     container_name: planet_minio_probe_infra
     depends_on:
       - minio
-    command: [ "sh", "-c", "sleep infinity" ]
+    command: ["sh", "-c", "sleep infinity"]
     healthcheck:
-      test: [ "CMD-SHELL", "curl -fsS http://minio:9000/minio/health/live >/dev/null || exit 1" ]
+      test: ["CMD-SHELL", "curl -fsS http://minio:9000/minio/health/live >/dev/null || exit 1"]
       interval: 5s
       timeout: 3s
       retries: 30
       start_period: 10s
     restart: unless-stopped
+    networks: [planet_net]
 
   api:
     build:
@@ -85,7 +89,14 @@ services:
         condition: service_healthy
       minio_probe:
         condition: service_healthy
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -fsS http://localhost:8080/api/health >/dev/null || exit 1" ]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
     restart: unless-stopped
+    networks: [planet_net]
 
   web:
     build:
@@ -97,6 +108,7 @@ services:
     volumes:
       - web_dist:/out
     restart: "no"
+    networks: [planet_net]
 
   nginx:
     image: nginx:stable-alpine3.23
@@ -105,15 +117,20 @@ services:
       - "80:80"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
-      - ./nginx/html:/usr/share/nginx/html:ro
+      - web_dist:/usr/share/nginx/html:ro
     depends_on:
       api:
-        condition: service_started
+        condition: service_healthy
       web:
         condition: service_completed_successfully
     restart: unless-stopped
+    networks: [planet_net]
 
 volumes:
   postgres_data:
   minio_data:
   web_dist:
+
+networks:
+  planet_net:
+    name: planet_net
