@@ -1,0 +1,72 @@
+### Base config
+#@base_url = http://localhost:8080
+@base_url = http://localhost
+@admin_email = admin@kidsplanet.com
+@admin_password = 12345678
+
+### 1. Health
+GET {{base_url}}/api/health
+
+### 2. Admin Login
+POST {{base_url}}/api/auth/admin/login
+Content-Type: application/json
+
+{
+  "email": "{{admin_email}}",
+  "password": "{{admin_password}}"
+}
+
+> {%
+    client.test("login status 200", function () {
+        client.assert(response.status === 200, "Expected 200, got " + response.status);
+    });
+
+    const body = response.body;
+    client.test("has data.access_token", function () {
+        client.assert(body && body.data && body.data.access_token, "Missing data.access_token");
+    });
+
+    client.global.set("admin_token", body.data.access_token);
+%}
+
+### 3. Admin Ping (200)
+GET {{base_url}}/api/admin/ping
+Authorization: Bearer {{admin_token}}
+
+> {%
+    client.test("ping status 200", function () {
+        client.assert(response.status === 200, "Expected 200, got " + response.status);
+    });
+
+    const body = response.body;
+    client.test("data.ok === true", function () {
+        client.assert(body && body.data && body.data.ok === true, "Expected data.ok === true");
+    });
+%}
+
+### 4. Admin Ping without token (401)
+GET {{base_url}}/api/admin/ping
+
+> {%
+    client.test("ping without token is 401", function () {
+        client.assert(response.status === 401, "Expected 401, got " + response.status);
+    });
+%}
+
+### 5. Admin Ping invalid token (401)
+GET {{base_url}}/api/admin/ping
+Authorization: Bearer abc
+
+> {%
+    client.test("ping invalid token is 401", function () {
+        client.assert(response.status === 401, "Expected 401, got " + response.status);
+    });
+%}
+
+
+###
+
+GET http://localhost/api/admin/me
+Authorization: Bearer {{admin_token}}
+
+###

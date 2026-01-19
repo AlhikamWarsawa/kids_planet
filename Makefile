@@ -1,7 +1,7 @@
 g:
 	git pull
 	git add .
-	git commit -m "API Structure + Standard Error"
+	git commit -m "Admin Auth JWT + Protected Routes"
 	git push
 
 up:
@@ -23,3 +23,6 @@ logs-inf:
 
 psql:
 	docker exec -it planet_postgres psql -U admin -d kids_planet
+
+psqll:
+	docker exec -it planet_postgres_infra psql -U admin -d kids_planet

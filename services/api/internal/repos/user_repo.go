@@ -4,11 +4,15 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 )
 
-var ErrNotFound = errors.New("not found")
+var (
+	ErrNotFound     = errors.New("not found")
+	ErrInvalidEmail = errors.New("invalid email")
+)
 
 type User struct {
 	ID           int64
@@ -29,10 +33,21 @@ func NewUserRepo(db *sql.DB) *UserRepo {
 	return &UserRepo{db: db}
 }
 
+func NormalizeEmail(email string) (string, error) {
+	e := strings.TrimSpace(strings.ToLower(email))
+	if e == "" {
+		return "", ErrInvalidEmail
+	}
+	if !strings.Contains(e, "@") {
+		return "", ErrInvalidEmail
+	}
+	return e, nil
+}
+
 func (r *UserRepo) FindByEmail(ctx context.Context, email string) (*User, error) {
-	email = strings.TrimSpace(strings.ToLower(email))
-	if email == "" {
-		return nil, errors.New("email is required")
+	email, err := NormalizeEmail(email)
+	if err != nil {
+		return nil, err
 	}
 
 	const q = `
@@ -42,7 +57,7 @@ WHERE email = $1
 LIMIT 1;
 `
 	var u User
-	err := r.db.QueryRowContext(ctx, q, email).Scan(
+	err = r.db.QueryRowContext(ctx, q, email).Scan(
 		&u.ID,
 		&u.Name,
 		&u.Email,
@@ -56,7 +71,7 @@ LIMIT 1;
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
-		return nil, err
+		return nil, fmt.Errorf("users.find_by_email: %w", err)
 	}
 	return &u, nil
 }

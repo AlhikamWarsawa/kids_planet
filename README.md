@@ -54,6 +54,13 @@ make up
 
 ---
 
+## Production
+```bash
+make inf
+```
+
+---
+
 ## Documentation
 
 * `docs/ARCHITECTURE.md`: system architecture overview

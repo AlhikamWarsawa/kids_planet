@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 )
 
 type Config struct {
@@ -11,6 +12,7 @@ type Config struct {
 	Port string
 
 	Postgres PostgresConfig
+	JWT      JWTConfig
 }
 
 type PostgresConfig struct {
@@ -22,6 +24,12 @@ type PostgresConfig struct {
 	SSLMode  string
 }
 
+type JWTConfig struct {
+	Secret    string
+	Issuer    string
+	ExpiresIn time.Duration
+}
+
 func MustLoad() Config {
 	cfg, err := Load()
 	if err != nil {
@@ -31,6 +39,11 @@ func MustLoad() Config {
 }
 
 func Load() (Config, error) {
+	jwtExpires, err := parseDurationEnv("JWT_EXPIRES_IN", "24h")
+	if err != nil {
+		return Config{}, err
+	}
+
 	cfg := Config{
 		Env:  getEnv("ENV", "dev"),
 		Port: getEnv("PORT", "8080"),
@@ -42,11 +55,20 @@ func Load() (Config, error) {
 			Password: os.Getenv("POSTGRES_PASSWORD"),
 			SSLMode:  getEnv("POSTGRES_SSLMODE", "disable"),
 		},
+		JWT: JWTConfig{
+			Secret:    os.Getenv("JWT_SECRET"),
+			Issuer:    getEnv("JWT_ISSUER", "kids_planet"),
+			ExpiresIn: jwtExpires,
+		},
 	}
 
 	if err := cfg.Postgres.Validate(); err != nil {
 		return Config{}, err
 	}
+	if err := cfg.JWT.Validate(); err != nil {
+		return Config{}, err
+	}
+
 	return cfg, nil
 }
 
@@ -73,6 +95,23 @@ func (c PostgresConfig) Validate() error {
 	return nil
 }
 
+func (c JWTConfig) Validate() error {
+	var missing []string
+	if strings.TrimSpace(c.Secret) == "" {
+		missing = append(missing, "JWT_SECRET")
+	}
+	if strings.TrimSpace(c.Issuer) == "" {
+		missing = append(missing, "JWT_ISSUER")
+	}
+	if c.ExpiresIn <= 0 {
+		return fmt.Errorf("invalid JWT_EXPIRES_IN: must be > 0")
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("missing required env: %v", missing)
+	}
+	return nil
+}
+
 func (c PostgresConfig) DSN() string {
 	return fmt.Sprintf(
 		"postgres://%s:%s@%s:%s/%s?sslmode=%s",
@@ -91,6 +130,15 @@ func getEnv(key, def string) string {
 		return def
 	}
 	return v
+}
+
+func parseDurationEnv(key, def string) (time.Duration, error) {
+	raw := getEnv(key, def)
+	d, err := time.ParseDuration(raw)
+	if err != nil {
+		return 0, fmt.Errorf("invalid %s=%q (must be Go duration like 12h, 30m, 900s): %w", key, raw, err)
+	}
+	return d, nil
 }
 
 func urlEscape(s string) string {

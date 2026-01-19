@@ -58,9 +58,6 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorResponse" }
 
-  # -------------------------
-  # Public catalog & play
-  # -------------------------
   /games:
     get:
       tags: [Games]
@@ -152,9 +149,6 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorResponse" }
 
-  # -------------------------
-  # Auth (Admin + optional Player)
-  # -------------------------
   /auth/admin/login:
     post:
       tags: [Auth]
@@ -234,9 +228,6 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorResponse" }
 
-  # -------------------------
-  # Sessions (play token for game iframe)
-  # -------------------------
   /sessions/start:
     post:
       tags: [Sessions]
@@ -271,9 +262,6 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorResponse" }
 
-  # -------------------------
-  # Leaderboard
-  # -------------------------
   /leaderboard/submit:
     post:
       tags: [Leaderboard]
@@ -357,9 +345,6 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorResponse" }
 
-  # -------------------------
-  # Achievements
-  # -------------------------
   /achievement/unlock:
     post:
       tags: [Achievements]
@@ -419,9 +404,6 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorResponse" }
 
-  # -------------------------
-  # Analytics (event-based)
-  # -------------------------
   /analytics/event:
     post:
       tags: [Analytics]

@@ -38,3 +38,11 @@ func ErrInternal() AppError {
 		HTTPStatus: http.StatusInternalServerError,
 	}
 }
+
+func ErrForbidden() AppError {
+	return AppError{
+		Code:       "FORBIDDEN",
+		Message:    "forbidden",
+		HTTPStatus: http.StatusForbidden,
+	}
+}

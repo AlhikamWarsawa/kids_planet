@@ -44,7 +44,7 @@ func main() {
 	})
 
 	if cfg.Env != "prod" {
-		app.Get("/panic", func(c *fiber.Ctx) error { panic("test") })
+		app.Get("/api/panic", func(c *fiber.Ctx) error { panic("test") })
 	}
 
 	addr := "0.0.0.0:" + cfg.Port

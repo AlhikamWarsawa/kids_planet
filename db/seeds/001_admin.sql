@@ -1,8 +1,8 @@
 INSERT INTO users (name, email, password_hash, role, status)
 VALUES (
            'Admin',
-           'admin@kidsplanet.com',
-           '123456',
+           'admin@kidsplanet2.com',
+           '$2a$10$FuBgv/iPOnaSiQzbkEWWbOtlOz3bhsuYc5xVlkGFxVGEToro/qLQ2',
            'admin',
            'active'
        )
