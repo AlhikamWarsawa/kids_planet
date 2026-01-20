@@ -202,6 +202,35 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorResponse" }
 
+  /admin/me:
+    get:
+      tags: [Auth]
+      summary: Get current admin (token check)
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Current admin
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessResponse"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/AdminMe" }
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "403":
+          description: Forbidden (not admin)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+
   /auth/player/register:
     post:
       tags: [Auth]
@@ -1023,3 +1052,10 @@ components:
           type: string
           enum: [game, global]
           default: game
+
+    AdminMe:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        email: { type: string, format: email }
+        role: { type: string, example: admin }

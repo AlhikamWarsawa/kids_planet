@@ -75,3 +75,34 @@ LIMIT 1;
 	}
 	return &u, nil
 }
+
+func (r *UserRepo) FindByID(ctx context.Context, id int64) (*User, error) {
+	if id <= 0 {
+		return nil, ErrNotFound
+	}
+
+	const q = `
+SELECT id, name, email, password_hash, role, status, created_at, updated_at
+FROM users
+WHERE id = $1
+LIMIT 1;
+`
+	var u User
+	err := r.db.QueryRowContext(ctx, q, id).Scan(
+		&u.ID,
+		&u.Name,
+		&u.Email,
+		&u.PasswordHash,
+		&u.Role,
+		&u.Status,
+		&u.CreatedAt,
+		&u.UpdatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("users.find_by_id: %w", err)
+	}
+	return &u, nil
+}

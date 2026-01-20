@@ -30,4 +30,7 @@ func Register(app *fiber.App, deps Deps) {
 	adminPing := admin.NewPingHandler()
 	adminGroup := api.Group("/admin", middleware.AuthJWT(deps.Cfg), middleware.RequireAdmin())
 	adminGroup.Get("/ping", adminPing.Get)
+
+	adminMe := admin.NewMeHandler(userRepo)
+	adminGroup.Get("/me", adminMe.Get)
 }

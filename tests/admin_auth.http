@@ -1,13 +1,33 @@
+### =========================
+### Day 7 — Admin Shell UI + Web Auth Foundation
+### JetBrains HTTP Client file
+### =========================
+
 ### Base config
-@base_url = http://localhost:8080
-#@base_url = http://localhost
+#@base_url = http://localhost:8080
+@base_url = http://localhost
 @admin_email = admin@kidsplanet.com
 @admin_password = 12345678
 
-### 1. Health
+### -----------------------------------------
+### 1) Health (public)
+### -----------------------------------------
 GET {{base_url}}/api/health
 
-### 2. Admin Login
+> {%
+    client.test("health status 200", function () {
+        client.assert(response.status === 200, "Expected 200, got " + response.status);
+    });
+
+    const body = response.body;
+    client.test("health has data", function () {
+        client.assert(body && body.data, "Missing body.data");
+    });
+%}
+
+### -----------------------------------------
+### 2) Admin Login (store admin_token)
+### -----------------------------------------
 POST {{base_url}}/api/auth/admin/login
 Content-Type: application/json
 
@@ -29,36 +49,129 @@ Content-Type: application/json
     client.global.set("admin_token", body.data.access_token);
 %}
 
-### 3. Admin Ping (200)
-GET {{base_url}}/api/admin/ping
+### -----------------------------------------
+### 3) Admin Me (protected, valid token)
+### Expect: { data: { id, email, role } }
+### -----------------------------------------
+GET {{base_url}}/api/admin/me
 Authorization: Bearer {{admin_token}}
 
 > {%
-    client.test("ping status 200", function () {
+    client.test("admin/me status 200", function () {
         client.assert(response.status === 200, "Expected 200, got " + response.status);
     });
 
     const body = response.body;
-    client.test("data.ok === true", function () {
+    client.test("admin/me has data", function () {
+        client.assert(body && body.data, "Missing body.data");
+    });
+
+    client.test("admin/me has id/email/role", function () {
+        client.assert(typeof body.data.id !== "undefined", "Missing data.id");
+        client.assert(typeof body.data.email !== "undefined", "Missing data.email");
+        client.assert(typeof body.data.role !== "undefined", "Missing data.role");
+    });
+
+    client.test("admin/me role is admin", function () {
+        client.assert(body.data.role === "admin", "Expected role=admin, got " + body.data.role);
+    });
+%}
+
+### -----------------------------------------
+### 4) Admin Ping (protected, valid token)
+### -----------------------------------------
+GET {{base_url}}/api/admin/ping
+Authorization: Bearer {{admin_token}}
+
+> {%
+    client.test("admin/ping status 200", function () {
+        client.assert(response.status === 200, "Expected 200, got " + response.status);
+    });
+
+    const body = response.body;
+    client.test("admin/ping data.ok === true", function () {
         client.assert(body && body.data && body.data.ok === true, "Expected data.ok === true");
     });
 %}
 
-### 4. Admin Ping without token (401)
+### -----------------------------------------
+### 5) Admin Me without token (401)
+### -----------------------------------------
+GET {{base_url}}/api/admin/me
+
+> {%
+    client.test("admin/me without token is 401", function () {
+        client.assert(response.status === 401, "Expected 401, got " + response.status);
+    });
+
+    const body = response.body;
+    client.test("error envelope exists", function () {
+        client.assert(body && body.error && body.error.code, "Missing error.code");
+        client.assert(body && body.error && body.error.message, "Missing error.message");
+    });
+%}
+
+### -----------------------------------------
+### 6) Admin Me invalid token (401)
+### -----------------------------------------
+GET {{base_url}}/api/admin/me
+Authorization: Bearer abc
+
+> {%
+    client.test("admin/me invalid token is 401", function () {
+        client.assert(response.status === 401, "Expected 401, got " + response.status);
+    });
+
+    const body = response.body;
+    client.test("error envelope exists", function () {
+        client.assert(body && body.error && body.error.code, "Missing error.code");
+        client.assert(body && body.error && body.error.message, "Missing error.message");
+    });
+%}
+
+### -----------------------------------------
+### 7) Admin Ping without token (401)
+### -----------------------------------------
 GET {{base_url}}/api/admin/ping
 
 > {%
-    client.test("ping without token is 401", function () {
+    client.test("admin/ping without token is 401", function () {
         client.assert(response.status === 401, "Expected 401, got " + response.status);
     });
 %}
 
-### 5. Admin Ping invalid token (401)
+### -----------------------------------------
+### 8) Admin Ping invalid token (401)
+### -----------------------------------------
 GET {{base_url}}/api/admin/ping
 Authorization: Bearer abc
 
 > {%
-    client.test("ping invalid token is 401", function () {
+    client.test("admin/ping invalid token is 401", function () {
         client.assert(response.status === 401, "Expected 401, got " + response.status);
+    });
+%}
+
+### -----------------------------------------
+### 9) Admin Login wrong password (401)
+### (Optional regression)
+### -----------------------------------------
+POST {{base_url}}/api/auth/admin/login
+Content-Type: application/json
+
+{
+  "email": "{{admin_email}}",
+  "password": "wrong-password"
+}
+
+> {%
+    client.test("login wrong password is 401", function () {
+        client.assert(response.status === 401, "Expected 401, got " + response.status);
+    });
+
+    const body = response.body;
+    client.test("error envelope exists", function () {
+        client.assert(body && body.error && body.error.code, "Missing error.code");
+        client.assert(body && body.error && body.error.message, "Missing error.message");
     });
 %}

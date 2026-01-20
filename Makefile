@@ -1,17 +1,17 @@
 g:
 	git pull
 	git add .
-	git commit -m "Fix Nginx API Routing"
+	git commit -m "Admin Web Auth & Shell UI"
 	git push
 
-up:
+dev:
 	docker compose up -d
 	docker logs -f planet_api
 
 ps:
 	docker compose ps
 
-inf:
+prod:
 	docker compose -f infra/docker-compose.yml up -d --build
 	docker compose logs
 
