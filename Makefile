@@ -1,7 +1,7 @@
 g:
 	git pull
 	git add .
-	git commit -m "Admin Web Auth & Shell UI"
+	git commit -m "Public Games Catalog API"
 	git push
 
 dev:

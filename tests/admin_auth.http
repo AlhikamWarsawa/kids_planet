@@ -1,17 +1,9 @@
-### =========================
-### Day 7 — Admin Shell UI + Web Auth Foundation
-### JetBrains HTTP Client file
-### =========================
-
-### Base config
 #@base_url = http://localhost:8080
 @base_url = http://localhost
 @admin_email = admin@kidsplanet.com
 @admin_password = 12345678
 
-### -----------------------------------------
-### 1) Health (public)
-### -----------------------------------------
+### Health
 GET {{base_url}}/api/health
 
 > {%
@@ -25,9 +17,7 @@ GET {{base_url}}/api/health
     });
 %}
 
-### -----------------------------------------
-### 2) Admin Login (store admin_token)
-### -----------------------------------------
+### Admin Login
 POST {{base_url}}/api/auth/admin/login
 Content-Type: application/json
 
@@ -49,10 +39,7 @@ Content-Type: application/json
     client.global.set("admin_token", body.data.access_token);
 %}
 
-### -----------------------------------------
-### 3) Admin Me (protected, valid token)
-### Expect: { data: { id, email, role } }
-### -----------------------------------------
+### Admin Me
 GET {{base_url}}/api/admin/me
 Authorization: Bearer {{admin_token}}
 
@@ -77,9 +64,7 @@ Authorization: Bearer {{admin_token}}
     });
 %}
 
-### -----------------------------------------
-### 4) Admin Ping (protected, valid token)
-### -----------------------------------------
+### Admin Ping
 GET {{base_url}}/api/admin/ping
 Authorization: Bearer {{admin_token}}
 
@@ -94,9 +79,7 @@ Authorization: Bearer {{admin_token}}
     });
 %}
 
-### -----------------------------------------
-### 5) Admin Me without token (401)
-### -----------------------------------------
+### Admin Me without token
 GET {{base_url}}/api/admin/me
 
 > {%
@@ -111,9 +94,7 @@ GET {{base_url}}/api/admin/me
     });
 %}
 
-### -----------------------------------------
-### 6) Admin Me invalid token (401)
-### -----------------------------------------
+### Admin Me invalid token
 GET {{base_url}}/api/admin/me
 Authorization: Bearer abc
 
@@ -129,9 +110,7 @@ Authorization: Bearer abc
     });
 %}
 
-### -----------------------------------------
-### 7) Admin Ping without token (401)
-### -----------------------------------------
+### Admin Ping without token
 GET {{base_url}}/api/admin/ping
 
 > {%
@@ -140,9 +119,7 @@ GET {{base_url}}/api/admin/ping
     });
 %}
 
-### -----------------------------------------
-### 8) Admin Ping invalid token (401)
-### -----------------------------------------
+### Admin Ping invalid token
 GET {{base_url}}/api/admin/ping
 Authorization: Bearer abc
 
@@ -152,10 +129,7 @@ Authorization: Bearer abc
     });
 %}
 
-### -----------------------------------------
-### 9) Admin Login wrong password (401)
-### (Optional regression)
-### -----------------------------------------
+### Admin Login wrong password
 POST {{base_url}}/api/auth/admin/login
 Content-Type: application/json
 

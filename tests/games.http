@@ -1,0 +1,129 @@
+#@base_url = http://localhost:8080
+@base_url = http://localhost
+
+### GET /api/games
+GET {{base_url}}/api/games
+Accept: application/json
+
+> {%
+    client.test("GET /api/games returns 200", function() {
+        client.assert(response.status === 200, "Expected 200, got " + response.status);
+    });
+
+    client.test("Response has data.items/page/limit/total", function() {
+        client.assert(!!response.body.data, "Missing data");
+        client.assert(Array.isArray(response.body.data.items), "data.items must be array");
+        client.assert(typeof response.body.data.page === "number", "data.page must be number");
+        client.assert(typeof response.body.data.limit === "number", "data.limit must be number");
+        client.assert(typeof response.body.data.total === "number", "data.total must be number");
+    });
+%}
+
+### GET /api/games?age_category_id=1
+GET {{base_url}}/api/games?age_category_id=1
+Accept: application/json
+
+> {%
+    client.test("Filter by age_category_id works (200)", function() {
+        client.assert(response.status === 200, "Expected 200, got " + response.status);
+    });
+
+    client.test("All items match age_category_id=1 (if any items)", function() {
+        var items = response.body.data.items || [];
+        for (var i = 0; i < items.length; i++) {
+            client.assert(items[i].age_category_id === 1, "Item age_category_id mismatch: " + JSON.stringify(items[i]));
+        }
+    });
+%}
+
+### GET /api/games?education_category_id=1
+GET {{base_url}}/api/games?education_category_id=1
+Accept: application/json
+
+> {%
+    client.test("Filter by education_category_id works (200)", function() {
+        client.assert(response.status === 200, "Expected 200, got " + response.status);
+    });
+
+    // We can't fully validate category membership from response because response doesn't include categories.
+    // This request mainly checks the API accepts filter and returns 200 with consistent shape.
+    client.test("Response has consistent shape", function() {
+        client.assert(!!response.body.data, "Missing data");
+        client.assert(Array.isArray(response.body.data.items), "data.items must be array");
+    });
+%}
+
+### GET /api/games?age_category_id=1&education_category_id=1
+GET {{base_url}}/api/games?age_category_id=1&education_category_id=1
+Accept: application/json
+
+> {%
+    client.test("Combined filters (age + education) returns 200", function() {
+        client.assert(response.status === 200, "Expected 200, got " + response.status);
+    });
+
+    client.test("All items match age_category_id=1 (if any items)", function() {
+        var items = response.body.data.items || [];
+        for (var i = 0; i < items.length; i++) {
+            client.assert(items[i].age_category_id === 1, "Item age_category_id mismatch: " + JSON.stringify(items[i]));
+        }
+    });
+%}
+
+### GET /api/games?sort=newest&page=1&limit=24
+GET {{base_url}}/api/games?sort=newest&page=1&limit=24
+Accept: application/json
+
+> {%
+    client.test("Sort newest accepted (200)", function() {
+        client.assert(response.status === 200, "Expected 200, got " + response.status);
+    });
+
+    client.test("Paging echoes page/limit", function() {
+        client.assert(response.body.data.page === 1, "Expected page=1");
+        client.assert(response.body.data.limit === 24, "Expected limit=24");
+    });
+%}
+
+### GET /api/games?sort=popular
+GET {{base_url}}/api/games?sort=popular
+Accept: application/json
+
+> {%
+    client.test("Sort popular accepted (200) - placeholder", function() {
+        client.assert(response.status === 200, "Expected 200, got " + response.status);
+    });
+%}
+
+
+### age_category_id=abc (400)
+GET {{base_url}}/api/games?age_category_id=abc
+Accept: application/json
+
+> {%
+    client.test("Invalid age_category_id returns 400", function() {
+        client.assert(response.status === 400, "Expected 400, got " + response.status);
+    });
+
+    client.test("Error response shape {error:{code,message}}", function() {
+        client.assert(!!response.body.error, "Missing error object");
+        client.assert(typeof response.body.error.code === "string", "error.code must be string");
+        client.assert(typeof response.body.error.message === "string", "error.message must be string");
+    });
+%}
+
+### limit=9999 (400)
+GET {{base_url}}/api/games?limit=9999
+Accept: application/json
+
+> {%
+    client.test("Invalid limit returns 400", function() {
+        client.assert(response.status === 400, "Expected 400, got " + response.status);
+    });
+
+    client.test("Error response shape {error:{code,message}}", function() {
+        client.assert(!!response.body.error, "Missing error object");
+        client.assert(typeof response.body.error.code === "string", "error.code must be string");
+        client.assert(typeof response.body.error.message === "string", "error.message must be string");
+    });
+%}

@@ -7,8 +7,10 @@ import (
 
 	"github.com/ZygmaCore/kids_planet/services/api/internal/config"
 	admin "github.com/ZygmaCore/kids_planet/services/api/internal/handlers/admin"
+	public "github.com/ZygmaCore/kids_planet/services/api/internal/handlers/public"
 	"github.com/ZygmaCore/kids_planet/services/api/internal/middleware"
 	"github.com/ZygmaCore/kids_planet/services/api/internal/repos"
+	"github.com/ZygmaCore/kids_planet/services/api/internal/services"
 )
 
 type Deps struct {
@@ -22,13 +24,23 @@ func Register(app *fiber.App, deps Deps) {
 	healthHandler := NewHealthHandler(deps.Cfg)
 	api.Get("/health", healthHandler.Get)
 
+	gameRepo := repos.NewGameRepo(deps.DB)
+	gameSvc := services.NewGameService(gameRepo)
+	gamesHandler := public.NewGamesHandler(gameSvc)
+	api.Get("/games", gamesHandler.List)
+
 	userRepo := repos.NewUserRepo(deps.DB)
 
 	authHandler := admin.NewAuthHandler(deps.Cfg, userRepo)
 	api.Post("/auth/admin/login", authHandler.Login)
 
+	adminGroup := api.Group(
+		"/admin",
+		middleware.AuthJWT(deps.Cfg),
+		middleware.RequireAdmin(),
+	)
+
 	adminPing := admin.NewPingHandler()
-	adminGroup := api.Group("/admin", middleware.AuthJWT(deps.Cfg), middleware.RequireAdmin())
 	adminGroup.Get("/ping", adminPing.Get)
 
 	adminMe := admin.NewMeHandler(userRepo)
