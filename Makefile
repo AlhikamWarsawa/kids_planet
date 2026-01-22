@@ -1,7 +1,7 @@
 g:
 	git pull
 	git add .
-	git commit -m "Public Games Catalog API"
+	git commit -m "Catalog UI for Player + Filters"
 	git push
 
 dev:

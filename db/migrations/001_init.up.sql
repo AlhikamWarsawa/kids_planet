@@ -105,3 +105,4 @@ CREATE TABLE game_education_categories
             REFERENCES education_categories (id)
             ON DELETE CASCADE
 );
+
