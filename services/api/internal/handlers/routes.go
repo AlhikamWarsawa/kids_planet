@@ -29,6 +29,10 @@ func Register(app *fiber.App, deps Deps) {
 	gamesHandler := public.NewGamesHandler(gameSvc)
 	api.Get("/games", gamesHandler.List)
 
+	sessionSvc := services.NewSessionService(deps.Cfg, gameRepo)
+	sessionsHandler := public.NewSessionsHandler(sessionSvc)
+	api.Post("/sessions/start", sessionsHandler.Start)
+
 	userRepo := repos.NewUserRepo(deps.DB)
 
 	authHandler := admin.NewAuthHandler(deps.Cfg, userRepo)

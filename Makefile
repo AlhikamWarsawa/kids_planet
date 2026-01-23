@@ -1,7 +1,7 @@
 g:
 	git pull
 	git add .
-	git commit -m "Catalog UI for Player + Filters"
+	git commit -m "Session Start + Play Token"
 	git push
 
 dev:
