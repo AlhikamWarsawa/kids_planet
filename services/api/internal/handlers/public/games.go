@@ -18,6 +18,20 @@ func NewGamesHandler(gameSvc *services.GameService) *GamesHandler {
 	return &GamesHandler{gameSvc: gameSvc}
 }
 
+func failFromServiceErr(c *fiber.Ctx, err error) error {
+	if err == nil {
+		return nil
+	}
+	switch e := err.(type) {
+	case utils.AppError:
+		return utils.Fail(c, e)
+	case *utils.AppError:
+		return utils.Fail(c, *e)
+	default:
+		return utils.Fail(c, utils.ErrInternal())
+	}
+}
+
 func (h *GamesHandler) List(c *fiber.Ctx) error {
 	ageStr := strings.TrimSpace(c.Query("age_category_id", ""))
 	eduStr := strings.TrimSpace(c.Query("education_category_id", ""))
@@ -61,10 +75,22 @@ func (h *GamesHandler) List(c *fiber.Ctx) error {
 		Limit:               limit,
 	})
 	if svcErr != nil {
-		if appErr, ok := svcErr.(*utils.AppError); ok {
-			return utils.Fail(c, *appErr)
-		}
-		return utils.Fail(c, utils.ErrInternal())
+		return failFromServiceErr(c, svcErr)
+	}
+
+	return utils.Success(c, dto)
+}
+
+func (h *GamesHandler) Get(c *fiber.Ctx) error {
+	idStr := strings.TrimSpace(c.Params("id", ""))
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil || id < 1 {
+		return utils.Fail(c, utils.ErrBadRequest("id must be an integer >= 1"))
+	}
+
+	dto, svcErr := h.gameSvc.GetPublicGameByID(c.Context(), id)
+	if svcErr != nil {
+		return failFromServiceErr(c, svcErr)
 	}
 
 	return utils.Success(c, dto)

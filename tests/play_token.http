@@ -1,5 +1,5 @@
-#@baseUrl = http://localhost:8080/api
- @baseUrl = http://localhost/api
+@baseUrl = http://localhost:8080/api
+# @baseUrl = http://localhost/api
 
 @json = application/json
 

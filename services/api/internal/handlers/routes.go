@@ -28,6 +28,7 @@ func Register(app *fiber.App, deps Deps) {
 	gameSvc := services.NewGameService(gameRepo)
 	gamesHandler := public.NewGamesHandler(gameSvc)
 	api.Get("/games", gamesHandler.List)
+	api.Get("/games/:id", gamesHandler.Get)
 
 	sessionSvc := services.NewSessionService(deps.Cfg, gameRepo)
 	sessionsHandler := public.NewSessionsHandler(sessionSvc)

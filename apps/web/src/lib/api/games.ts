@@ -1,5 +1,5 @@
 import { api } from '$lib/api/client';
-import type { GameListItem, GameListResponse } from '$lib/types/game';
+import type { GameDetail, GameListResponse } from '$lib/types/game';
 
 export type GamesSort = 'newest' | 'popular';
 
@@ -37,4 +37,11 @@ function buildQuery(params: ListGamesParams = {}): string {
 export function listGames(params: ListGamesParams = {}): Promise<GameListResponse> {
     const qs = buildQuery(params);
     return api.get<GameListResponse>(`/games${qs}`);
+}
+
+export function getGame(id: number): Promise<GameDetail> {
+    if (!Number.isFinite(id) || id < 1) {
+        return Promise.reject(new Error('id must be a number >= 1'));
+    }
+    return api.get<GameDetail>(`/games/${id}`);
 }

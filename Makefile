@@ -1,7 +1,7 @@
 g:
 	git pull
 	git add .
-	git commit -m "Session Start + Play Token"
+	git commit -m "Play Page Iframe + Game Detail Contract"
 	git push
 
 dev:

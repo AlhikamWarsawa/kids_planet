@@ -60,44 +60,36 @@ paths:
 
   /games:
     get:
-      tags: [Games]
+      tags: [ Games ]
       summary: List games for catalog (grid)
       description: |
         Public endpoint for catalog listing with filter & sort.
-        Typically returns only active games, optionally only free games for guest mode.
+        Returns only active games.
+        Note: sort=popular is accepted as placeholder and currently falls back to newest.
       parameters:
         - in: query
           name: age_category_id
-          schema: { type: integer, format: int64 }
+          schema: { type: integer, format: int64, minimum: 1 }
           required: false
         - in: query
-          name: education_category_ids
-          schema:
-            type: array
-            items: { type: integer, format: int64 }
-          style: form
-          explode: false
+          name: education_category_id
+          schema: { type: integer, format: int64, minimum: 1 }
           required: false
-          description: "Comma-separated IDs. Example: education_category_ids=1,2,3"
-        - in: query
-          name: free
-          schema: { type: boolean }
-          required: false
-          description: Filter free games only (useful for guest).
         - in: query
           name: sort
           schema:
             type: string
-            enum: [newest, popularity]
+            enum: [ newest, popular ]
             default: newest
+          required: false
+          description: "popular accepted as placeholder (falls back to newest for now)."
+        - in: query
+          name: page
+          schema: { type: integer, minimum: 1, default: 1 }
           required: false
         - in: query
           name: limit
           schema: { type: integer, minimum: 1, maximum: 100, default: 24 }
-          required: false
-        - in: query
-          name: offset
-          schema: { type: integer, minimum: 0, default: 0 }
           required: false
       responses:
         "200":
@@ -109,29 +101,25 @@ paths:
                   - $ref: "#/components/schemas/SuccessResponse"
                   - type: object
                     properties:
-                      data:
-                        type: object
-                        properties:
-                          items:
-                            type: array
-                            items: { $ref: "#/components/schemas/GameCard" }
-                          paging:
-                            $ref: "#/components/schemas/Paging"
+                      data: { $ref: "#/components/schemas/GameListData" }
         "400":
-          description: Invalid filter
+          description: Invalid filter or pagination
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorResponse" }
 
   /games/{id}:
     get:
-      tags: [Games]
-      summary: Get game detail
+      tags: [ Games ]
+      summary: Get game detail (public)
+      description: |
+        Returns game detail needed by play page.
+        Only returns active games for public access.
       parameters:
         - in: path
           name: id
           required: true
-          schema: { type: integer, format: int64 }
+          schema: { type: integer, format: int64, minimum: 1 }
       responses:
         "200":
           description: Game detail
@@ -143,13 +131,19 @@ paths:
                   - type: object
                     properties:
                       data: { $ref: "#/components/schemas/GameDetail" }
+        "400":
+          description: Invalid id
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
         "404":
-          description: Not found
+          description: Game not found (or not active)
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorResponse" }
 
-  /auth/admin/login:
+
+    /auth/admin/login:
     post:
       tags: [Auth]
       summary: Admin login
@@ -869,20 +863,7 @@ components:
           type: integer
           description: Simple popularity metric (e.g., last 7d plays)
           example: 123
-
-    GameDetail:
-      allOf:
-        - $ref: "#/components/schemas/GameCard"
-        - type: object
-          properties:
-            slug: { type: string }
-            description: { type: string }
-            game_url: { type: string, description: "URL served via /games/* behind Nginx/MinIO" }
-            status:
-              type: string
-              enum: [draft, active, archived]
-            age_category: { $ref: "#/components/schemas/AgeCategory" }
-
+          
     LeaderboardSubmitRequest:
       type: object
       required: [game_id, score, timestamp]
@@ -1059,3 +1040,40 @@ components:
         id: { type: integer, format: int64 }
         email: { type: string, format: email }
         role: { type: string, example: admin }
+
+    GameListItem:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        title: { type: string }
+        slug: { type: string }
+        thumbnail: { type: string, nullable: true }
+        game_url: { type: string, nullable: true }
+        age_category_id: { type: integer, format: int64 }
+        free: { type: boolean }
+        created_at: { type: string, format: date-time }
+      required: [ id, title, slug, age_category_id, free, created_at ]
+
+    GameListData:
+      type: object
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/GameListItem" }
+        page: { type: integer, example: 1 }
+        limit: { type: integer, example: 24 }
+        total: { type: integer, example: 1 }
+      required: [ items, page, limit, total ]
+
+    GameDetail:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        title: { type: string }
+        slug: { type: string }
+        thumbnail: { type: string, nullable: true }
+        game_url: { type: string, nullable: true, description: "URL to load in iframe (served via Nginx/MinIO later)" }
+        age_category_id: { type: integer, format: int64 }
+        free: { type: boolean }
+        created_at: { type: string, format: date-time }
+      required: [ id, title, slug, age_category_id, free, created_at ]

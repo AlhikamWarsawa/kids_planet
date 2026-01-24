@@ -115,6 +115,48 @@ LIMIT 1;
 	return &g, nil
 }
 
+func (r *GameRepo) GetByIDPublic(ctx context.Context, id int64) (*GameListItem, error) {
+	if id <= 0 {
+		return nil, errors.New("id is required")
+	}
+
+	const q = `
+SELECT
+  g.id,
+  g.title,
+  g.slug,
+  g.thumbnail,
+  g.game_url,
+  g.age_category_id,
+  g.free,
+  g.created_at
+FROM games g
+WHERE g.id = $1
+  AND g.status = 'active'
+LIMIT 1;
+`
+
+	var it GameListItem
+	err := r.db.QueryRowContext(ctx, q, id).Scan(
+		&it.ID,
+		&it.Title,
+		&it.Slug,
+		&it.Thumbnail,
+		&it.GameURL,
+		&it.AgeCategoryID,
+		&it.Free,
+		&it.CreatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+
+	return &it, nil
+}
+
 type GameListSort string
 
 const (

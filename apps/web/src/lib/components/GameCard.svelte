@@ -6,7 +6,7 @@
     const ageLabel = (ageCategoryId: number) => `${ageCategoryId}+`;
 </script>
 
-<a class="card" href={`/games/${game.id}`} aria-label={`Play ${game.title}`}>
+<a class="card" href={`/player/games/${game.id}`} aria-label={`Play ${game.title}`}>
     <div class="thumb">
         {#if game.thumbnail}
             <img

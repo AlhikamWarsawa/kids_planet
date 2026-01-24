@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"strings"
 
 	"github.com/ZygmaCore/kids_planet/services/api/internal/repos"
@@ -33,6 +34,17 @@ type GameListDTO struct {
 }
 
 type GameListItemDTO struct {
+	ID            int64   `json:"id"`
+	Title         string  `json:"title"`
+	Slug          string  `json:"slug"`
+	Thumbnail     *string `json:"thumbnail"`
+	GameURL       *string `json:"game_url"`
+	AgeCategoryID int64   `json:"age_category_id"`
+	Free          bool    `json:"free"`
+	CreatedAt     string  `json:"created_at"`
+}
+
+type GameDetailDTO struct {
 	ID            int64   `json:"id"`
 	Title         string  `json:"title"`
 	Slug          string  `json:"slug"`
@@ -139,5 +151,42 @@ func (s *GameService) ListPublicGames(ctx context.Context, in ListPublicGamesInp
 		Page:  page,
 		Limit: limit,
 		Total: total,
+	}, nil
+}
+
+func (s *GameService) GetPublicGameByID(ctx context.Context, id int64) (*GameDetailDTO, error) {
+	if id < 1 {
+		return nil, utils.ErrBadRequest("id must be an integer >= 1")
+	}
+
+	it, err := s.gameRepo.GetByIDPublic(ctx, id)
+	if err != nil {
+		if errors.Is(err, repos.ErrNotFound) {
+			return nil, utils.ErrNotFound("game not found")
+		}
+		return nil, utils.ErrInternal()
+	}
+
+	var thumb *string
+	if it.Thumbnail.Valid {
+		v := it.Thumbnail.String
+		thumb = &v
+	}
+
+	var url *string
+	if it.GameURL.Valid {
+		v := it.GameURL.String
+		url = &v
+	}
+
+	return &GameDetailDTO{
+		ID:            it.ID,
+		Title:         it.Title,
+		Slug:          it.Slug,
+		Thumbnail:     thumb,
+		GameURL:       url,
+		AgeCategoryID: it.AgeCategoryID,
+		Free:          it.Free,
+		CreatedAt:     it.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
 	}, nil
 }
