@@ -2,9 +2,10 @@
     import { onMount } from "svelte";
     import { get } from "svelte/store";
     import { page } from "$app/stores";
+    import { browser } from "$app/environment";
 
     import { session } from "$lib/stores/session";
-    import { ApiError } from "$lib/api/client";
+    import { api, ApiError } from "$lib/api/client";
     import { getGame } from "$lib/api/games";
     import type { GameDetail } from "$lib/types/game";
 
@@ -15,6 +16,45 @@
     let errorMsg: string | null = null;
 
     let expiresAt: number | null = null;
+
+    const GUEST_KEY = "kidsplanet_guest_id";
+    let guestId: string = "";
+    let devScore = "";
+    let submitLoading = false;
+    let submitError: string | null = null;
+    let submitResult: { accepted: boolean; best_score: number } | null = null;
+
+    let toastMsg: string | null = null;
+    let toastTimer: any = null;
+
+    function showToast(msg: string) {
+        toastMsg = msg;
+        if (toastTimer) clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => {
+            toastMsg = null;
+            toastTimer = null;
+        }, 2200);
+    }
+
+    function getOrCreateGuestId(): string {
+        if (!browser) return "";
+        try {
+            const existing = (localStorage.getItem(GUEST_KEY) ?? "").trim();
+            if (existing) return existing;
+
+            let id = "";
+            const c: any = globalThis as any;
+            if (c?.crypto?.randomUUID) {
+                id = c.crypto.randomUUID();
+            } else {
+                id = `anon_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+            }
+            localStorage.setItem(GUEST_KEY, id);
+            return id;
+        } catch {
+            return "";
+        }
+    }
 
     function parseGameId(): number | null {
         const idStr = (get(page).params as any)?.id;
@@ -69,11 +109,83 @@
         return tokenGid === gid;
     }
 
+    function randomScore(): number {
+        return Math.floor(Math.random() * 1000);
+    }
+
+    function parseScoreInput(raw: string): { ok: true; value: number } | { ok: false; message: string } {
+        const s = raw.trim();
+        if (!s) return { ok: true, value: randomScore() };
+
+        const n = Number(s);
+        if (!Number.isFinite(n)) return { ok: false, message: "Score must be a number (integer)." };
+
+        const i = Math.floor(n);
+        if (i !== n) return { ok: false, message: "Score must be an integer." };
+        if (i < 0) return { ok: false, message: "Score must be >= 0." };
+
+        return { ok: true, value: i };
+    }
+
+    async function submitScoreDev() {
+        submitError = null;
+        submitResult = null;
+
+        if (stage !== "ready" || !gameId) {
+            submitError = "Play page not ready yet.";
+            return;
+        }
+
+        const snap = session.getSnapshot();
+        const token = (snap.playToken ?? "").trim();
+        if (!token) {
+            submitError = "Missing play token. Try Retry.";
+            return;
+        }
+
+        if (!guestId) {
+            submitError = "Missing guest id. Refresh page.";
+            return;
+        }
+
+        const parsed = parseScoreInput(devScore);
+        if (!parsed.ok) {
+            submitError = parsed.message;
+            return;
+        }
+
+        submitLoading = true;
+        try {
+            const res = await api.post<{ accepted: boolean; best_score: number }>(
+                "/leaderboard/submit",
+                { game_id: gameId, score: parsed.value },
+                {
+                    token,
+                    headers: {
+                        "X-Guest-Id": guestId,
+                    },
+                }
+            );
+
+            submitResult = res;
+            showToast(`Submitted best_score=${res.best_score}`);
+        } catch (e) {
+            const msg = e instanceof ApiError ? `${e.code}: ${e.message}` : "Submit failed.";
+            submitError = msg;
+            showToast("Submit failed");
+        } finally {
+            submitLoading = false;
+        }
+    }
+
     async function run() {
         errorMsg = null;
         game = null;
         gameId = null;
         expiresAt = null;
+
+        submitError = null;
+        submitResult = null;
 
         const gid = parseGameId();
         if (!gid) {
@@ -119,6 +231,7 @@
 
     onMount(async () => {
         session.loadFromStorage();
+        guestId = getOrCreateGuestId();
         await run();
     });
 </script>
@@ -128,6 +241,10 @@
 </svelte:head>
 
 <main class="screen">
+    {#if toastMsg}
+        <div class="toast" role="status" aria-live="polite">{toastMsg}</div>
+    {/if}
+
     <header class="topbar">
         <a class="pill" href="/player">← Back</a>
         <div class="title">
@@ -155,6 +272,39 @@
             <button class="pill mt" type="button" on:click={run}>Retry</button>
         </div>
     {:else if stage === "ready" && game?.game_url}
+        <section class="devPanel" aria-label="Dev tools">
+            <div class="devTitle">Dev tools</div>
+            <div class="devRow">
+                <label class="devLabel" for="score">Score</label>
+                <input
+                        id="score"
+                        class="devInput"
+                        type="number"
+                        inputmode="numeric"
+                        placeholder="(empty = random)"
+                        bind:value={devScore}
+                        min="0"
+                />
+                <button class="pill devBtn" type="button" on:click={submitScoreDev} disabled={submitLoading}>
+                    {submitLoading ? "Submitting…" : "Submit Score (dev)"}
+                </button>
+            </div>
+
+            <div class="devMeta">
+                <div><b>guest_id</b>: {guestId || "-"}</div>
+                <div><b>token</b>: {session.getSnapshot().playToken ? "ready" : "missing"}</div>
+            </div>
+
+            {#if submitError}
+                <div class="devError" role="alert">{submitError}</div>
+            {/if}
+            {#if submitResult}
+                <div class="devOk">
+                    accepted: <b>{submitResult.accepted ? "true" : "false"}</b> · best_score: <b>{submitResult.best_score}</b>
+                </div>
+            {/if}
+        </section>
+
         <section class="frameWrap">
             <iframe
                     class="frame"
@@ -177,6 +327,25 @@
         background: #fff;
         overflow: hidden;
         box-sizing: border-box;
+    }
+
+    .toast {
+        position: fixed;
+        top: 14px;
+        right: 14px;
+        z-index: 50;
+        padding: 10px 12px;
+        border-radius: 12px;
+        border: 3px solid #666;
+        background: #fff;
+        font-weight: 800;
+        font-size: 12px;
+        color: #222;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+        max-width: min(420px, calc(100vw - 28px));
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
 
     .topbar {
@@ -225,6 +394,11 @@
         background: #f5f5f5;
     }
 
+    .pill:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+    }
+
     .state {
         border: 4px solid #666;
         border-radius: 14px;
@@ -254,9 +428,86 @@
         margin-top: 12px;
     }
 
+    .devPanel {
+        border: 4px dashed #666;
+        border-radius: 14px;
+        padding: 12px;
+        background: #fff;
+        box-sizing: border-box;
+        margin-bottom: 12px;
+    }
+
+    .devTitle {
+        font-weight: 900;
+        margin-bottom: 10px;
+        color: #222;
+        font-size: 12px;
+        letter-spacing: 0.3px;
+        text-transform: uppercase;
+        opacity: 0.85;
+    }
+
+    .devRow {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        flex-wrap: wrap;
+    }
+
+    .devLabel {
+        font-weight: 800;
+        font-size: 12px;
+        color: #222;
+        opacity: 0.85;
+    }
+
+    .devInput {
+        width: 160px;
+        padding: 10px 12px;
+        border: 3px solid #666;
+        border-radius: 12px;
+        font-weight: 800;
+        outline: none;
+    }
+
+    .devBtn {
+        padding: 10px 14px;
+        border-width: 3px;
+    }
+
+    .devMeta {
+        margin-top: 8px;
+        font-size: 12px;
+        color: #222;
+        opacity: 0.85;
+        display: flex;
+        gap: 14px;
+        flex-wrap: wrap;
+    }
+
+    .devError {
+        margin-top: 10px;
+        padding: 10px 12px;
+        border-radius: 12px;
+        border: 3px solid #ef4444;
+        color: #991b1b;
+        font-weight: 800;
+        font-size: 12px;
+    }
+
+    .devOk {
+        margin-top: 10px;
+        padding: 10px 12px;
+        border-radius: 12px;
+        border: 3px solid #22c55e;
+        color: #14532d;
+        font-weight: 800;
+        font-size: 12px;
+    }
+
     .frameWrap {
         width: 100%;
-        height: calc(100vh - 110px);
+        height: calc(100vh - 190px);
         border: 4px solid #666;
         border-radius: 14px;
         overflow: hidden;
@@ -279,7 +530,7 @@
             font-size: 20px;
         }
         .frameWrap {
-            height: calc(100vh - 120px);
+            height: calc(100vh - 200px);
         }
     }
 </style>

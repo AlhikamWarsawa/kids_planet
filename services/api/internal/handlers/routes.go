@@ -5,6 +5,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 
+	"github.com/ZygmaCore/kids_planet/services/api/internal/clients"
 	"github.com/ZygmaCore/kids_planet/services/api/internal/config"
 	admin "github.com/ZygmaCore/kids_planet/services/api/internal/handlers/admin"
 	public "github.com/ZygmaCore/kids_planet/services/api/internal/handlers/public"
@@ -14,8 +15,9 @@ import (
 )
 
 type Deps struct {
-	Cfg config.Config
-	DB  *sql.DB
+	Cfg    config.Config
+	DB     *sql.DB
+	Valkey *clients.Valkey
 }
 
 func Register(app *fiber.App, deps Deps) {
@@ -25,16 +27,26 @@ func Register(app *fiber.App, deps Deps) {
 	api.Get("/health", healthHandler.Get)
 
 	gameRepo := repos.NewGameRepo(deps.DB)
+	userRepo := repos.NewUserRepo(deps.DB)
+	submissionRepo := repos.NewSubmissionRepo(deps.DB)
+
 	gameSvc := services.NewGameService(gameRepo)
+	sessionSvc := services.NewSessionService(deps.Cfg, gameRepo)
+	leaderboardSvc := services.NewLeaderboardService(deps.Valkey, submissionRepo)
+
 	gamesHandler := public.NewGamesHandler(gameSvc)
 	api.Get("/games", gamesHandler.List)
 	api.Get("/games/:id", gamesHandler.Get)
 
-	sessionSvc := services.NewSessionService(deps.Cfg, gameRepo)
 	sessionsHandler := public.NewSessionsHandler(sessionSvc)
 	api.Post("/sessions/start", sessionsHandler.Start)
 
-	userRepo := repos.NewUserRepo(deps.DB)
+	leaderboardHandler := public.NewLeaderboardHandler(leaderboardSvc)
+	api.Post(
+		"/leaderboard/submit",
+		middleware.PlayToken(deps.Cfg),
+		leaderboardHandler.Submit,
+	)
 
 	authHandler := admin.NewAuthHandler(deps.Cfg, userRepo)
 	api.Post("/auth/admin/login", authHandler.Login)

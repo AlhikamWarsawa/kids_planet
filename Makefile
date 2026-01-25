@@ -1,7 +1,7 @@
 g:
 	git pull
 	git add .
-	git commit -m "Play Page Iframe + Game Detail Contract"
+	git commit -m "Leaderboard Submit + Valkey ZSET"
 	git push
 
 dev:

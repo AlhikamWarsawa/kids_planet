@@ -1,1 +1,145 @@
 package services
+
+import (
+	"context"
+	"database/sql"
+	"strings"
+	"time"
+
+	"github.com/ZygmaCore/kids_planet/services/api/internal/clients"
+	"github.com/ZygmaCore/kids_planet/services/api/internal/models"
+	"github.com/ZygmaCore/kids_planet/services/api/internal/repos"
+	"github.com/ZygmaCore/kids_planet/services/api/internal/utils"
+)
+
+type LeaderboardService struct {
+	valkey         *clients.Valkey
+	submissionRepo *repos.SubmissionRepo
+}
+
+func NewLeaderboardService(valkey *clients.Valkey, submissionRepo *repos.SubmissionRepo) *LeaderboardService {
+	return &LeaderboardService{
+		valkey:         valkey,
+		submissionRepo: submissionRepo,
+	}
+}
+
+func (s *LeaderboardService) SubmitScore(
+	ctx context.Context,
+	tokenGameID int64,
+	guestID string,
+	req models.SubmitScoreRequest,
+	sessionID string,
+	ipHash string,
+	userAgentHash string,
+) (*models.SubmitScoreResponse, *utils.AppError) {
+	if req.GameID <= 0 {
+		e := utils.ErrBadRequest("game_id must be a positive integer")
+		return nil, &e
+	}
+	if req.Score < 0 {
+		e := utils.ErrBadRequest("score must be >= 0")
+		return nil, &e
+	}
+
+	if tokenGameID <= 0 {
+		e := utils.ErrUnauthorized()
+		return nil, &e
+	}
+	if req.GameID != tokenGameID {
+		e := utils.ErrForbidden()
+		return nil, &e
+	}
+
+	guestID = strings.TrimSpace(guestID)
+	if guestID == "" {
+		e := utils.ErrBadRequest("missing guest id")
+		return nil, &e
+	}
+
+	member := "g:" + guestID
+	now := time.Now().UTC()
+
+	sub := &repos.LeaderboardSubmission{
+		GameID:        req.GameID,
+		PlayerID:      sql.NullInt64{Valid: false},
+		SessionID:     nullString(sessionID),
+		Score:         req.Score,
+		IPHash:        nullString(ipHash),
+		UserAgentHash: nullString(userAgentHash),
+		Flagged:       false,
+		FlagReason:    sql.NullString{Valid: false},
+	}
+
+	if _, err := s.submissionRepo.CreateSubmission(ctx, sub); err != nil {
+		e := utils.ErrInternal()
+		return nil, &e
+	}
+
+	dKey := clients.KeyGameDaily(req.GameID, now)
+	wKey := clients.KeyGameWeekly(req.GameID, now)
+
+	bestDaily, errApp := s.upsertIfHigher(ctx, dKey, member, req.Score, clients.DailyTTL)
+	if errApp != nil {
+		return nil, errApp
+	}
+	bestWeekly, errApp := s.upsertIfHigher(ctx, wKey, member, req.Score, clients.WeeklyTTL)
+	if errApp != nil {
+		return nil, errApp
+	}
+
+	best := bestWeekly
+	if bestDaily > best {
+		best = bestDaily
+	}
+
+	return &models.SubmitScoreResponse{
+		Accepted:  true,
+		BestScore: best,
+	}, nil
+}
+
+func (s *LeaderboardService) upsertIfHigher(
+	ctx context.Context,
+	key string,
+	member string,
+	score int,
+	ttl time.Duration,
+) (int, *utils.AppError) {
+	old, exists, err := s.valkey.ZScore(ctx, key, member)
+	if err != nil {
+		e := utils.ErrInternal()
+		return 0, &e
+	}
+
+	best := score
+	if exists {
+		oldInt := int(old)
+		if score <= oldInt {
+			best = oldInt
+			if err := s.valkey.Expire(ctx, key, ttl); err != nil {
+				e := utils.ErrInternal()
+				return 0, &e
+			}
+			return best, nil
+		}
+	}
+
+	if err := s.valkey.ZAdd(ctx, key, member, float64(score)); err != nil {
+		e := utils.ErrInternal()
+		return 0, &e
+	}
+	if err := s.valkey.Expire(ctx, key, ttl); err != nil {
+		e := utils.ErrInternal()
+		return 0, &e
+	}
+	return best, nil
+}
+
+func nullString(v string) sql.NullString {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return sql.NullString{Valid: false}
+	}
+	return sql.NullString{String: v, Valid: true}
+}

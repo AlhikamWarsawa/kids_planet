@@ -9,13 +9,13 @@ INSERT INTO games (
     created_by
 )
 SELECT
-    'Color Match',
-    'color-match',
-    'Match colors to improve memory and logic skills.',
-    'easy',
+    'Free Fire',
+    'free-fire',
+    'Shot Player booyah.',
+    'hard',
     ac.id,
     TRUE,
-    'draft',
+    'active',
     u.id
 FROM users u
          JOIN age_categories ac ON ac.label = '5+'

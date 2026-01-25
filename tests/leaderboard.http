@@ -1,0 +1,112 @@
+@base = http://localhost:8080/api
+#@base = http://localhost/api
+@game_id = 1
+@guest_id = guest_001
+
+### Health
+GET {{base}}/health
+
+### Start session
+POST {{base}}/sessions/start
+Content-Type: application/json
+
+{
+  "game_id": {{game_id}}
+}
+
+> {%
+    const t = response.body?.data?.play_token;
+    if (!t) throw new Error("Missing data.play_token from /sessions/start");
+    client.global.set("PLAY_TOKEN", t);
+
+    const exp = response.body?.data?.expires_at;
+    if (exp) client.global.set("PLAY_EXPIRES_AT", exp);
+%}
+
+### Submit score valid (200)
+POST {{base}}/leaderboard/submit
+Authorization: Bearer {{PLAY_TOKEN}}
+X-Guest-Id: {{guest_id}}
+Content-Type: application/json
+
+{
+  "game_id": {{game_id}},
+  "score": 100
+}
+
+### Submit lower score (200)
+POST {{base}}/leaderboard/submit
+Authorization: Bearer {{PLAY_TOKEN}}
+X-Guest-Id: {{guest_id}}
+Content-Type: application/json
+
+{
+  "game_id": {{game_id}},
+  "score": 90
+}
+
+### Missing token (401)
+POST {{base}}/leaderboard/submit
+X-Guest-Id: {{guest_id}}
+Content-Type: application/json
+
+{
+  "game_id": {{game_id}},
+  "score": 10
+}
+
+### Invalid token (401)
+POST {{base}}/leaderboard/submit
+Authorization: Bearer invalid.token.here
+X-Guest-Id: {{guest_id}}
+Content-Type: application/json
+
+{
+  "game_id": {{game_id}},
+  "score": 10
+}
+
+### Expired token (401)
+POST {{base}}/leaderboard/submit
+Authorization: Bearer {{EXPIRED_PLAY_TOKEN}}
+X-Guest-Id: {{guest_id}}
+Content-Type: application/json
+
+{
+  "game_id": {{game_id}},
+  "score": 10
+}
+
+### Mismatch game_id (403)
+@other_game_id = 2
+POST {{base}}/leaderboard/submit
+Authorization: Bearer {{PLAY_TOKEN}}
+X-Guest-Id: {{guest_id}}
+Content-Type: application/json
+
+{
+  "game_id": {{other_game_id}},
+  "score": 10
+}
+
+### score negatif (400)
+POST {{base}}/leaderboard/submit
+Authorization: Bearer {{PLAY_TOKEN}}
+X-Guest-Id: {{guest_id}}
+Content-Type: application/json
+
+{
+  "game_id": {{game_id}},
+  "score": -1
+}
+
+### score non integer (400)
+POST {{base}}/leaderboard/submit
+Authorization: Bearer {{PLAY_TOKEN}}
+X-Guest-Id: {{guest_id}}
+Content-Type: application/json
+
+{
+  "game_id": {{game_id}},
+  "score": "NaN"
+}

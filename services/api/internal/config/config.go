@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -12,6 +13,7 @@ type Config struct {
 	Port string
 
 	Postgres PostgresConfig
+	Valkey   ValkeyConfig
 	JWT      JWTConfig
 }
 
@@ -22,6 +24,12 @@ type PostgresConfig struct {
 	User     string
 	Password string
 	SSLMode  string
+}
+
+type ValkeyConfig struct {
+	Addr     string
+	Password string
+	DB       int
 }
 
 type JWTConfig struct {
@@ -44,6 +52,11 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 
+	valkeyDB, err := parseIntEnv("VALKEY_DB", "0")
+	if err != nil {
+		return Config{}, err
+	}
+
 	cfg := Config{
 		Env:  getEnv("ENV", "dev"),
 		Port: getEnv("PORT", "8080"),
@@ -55,6 +68,11 @@ func Load() (Config, error) {
 			Password: os.Getenv("POSTGRES_PASSWORD"),
 			SSLMode:  getEnv("POSTGRES_SSLMODE", "disable"),
 		},
+		Valkey: ValkeyConfig{
+			Addr:     os.Getenv("VALKEY_ADDR"),
+			Password: getEnv("VALKEY_PASSWORD", ""),
+			DB:       valkeyDB,
+		},
 		JWT: JWTConfig{
 			Secret:    os.Getenv("JWT_SECRET"),
 			Issuer:    getEnv("JWT_ISSUER", "kids_planet"),
@@ -63,6 +81,9 @@ func Load() (Config, error) {
 	}
 
 	if err := cfg.Postgres.Validate(); err != nil {
+		return Config{}, err
+	}
+	if err := cfg.Valkey.Validate(); err != nil {
 		return Config{}, err
 	}
 	if err := cfg.JWT.Validate(); err != nil {
@@ -88,6 +109,20 @@ func (c PostgresConfig) Validate() error {
 	}
 	if strings.TrimSpace(c.Password) == "" {
 		missing = append(missing, "POSTGRES_PASSWORD")
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("missing required env: %v", missing)
+	}
+	return nil
+}
+
+func (c ValkeyConfig) Validate() error {
+	var missing []string
+	if strings.TrimSpace(c.Addr) == "" {
+		missing = append(missing, "VALKEY_ADDR")
+	}
+	if c.DB < 0 {
+		return fmt.Errorf("invalid VALKEY_DB: must be >= 0")
 	}
 	if len(missing) > 0 {
 		return fmt.Errorf("missing required env: %v", missing)
@@ -139,6 +174,15 @@ func parseDurationEnv(key, def string) (time.Duration, error) {
 		return 0, fmt.Errorf("invalid %s=%q (must be Go duration like 12h, 30m, 900s): %w", key, raw, err)
 	}
 	return d, nil
+}
+
+func parseIntEnv(key, def string) (int, error) {
+	raw := getEnv(key, def)
+	n, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil {
+		return 0, fmt.Errorf("invalid %s=%q (must be int): %w", key, raw, err)
+	}
+	return n, nil
 }
 
 func urlEscape(s string) string {

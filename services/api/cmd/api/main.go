@@ -29,6 +29,13 @@ func main() {
 	defer func() { _ = db.Close() }()
 	log.Println("postgres connected")
 
+	vk, err := clients.NewValkey(cfg.Valkey)
+	if err != nil {
+		log.Fatalf("startup failed (valkey): %v", err)
+	}
+	defer func() { _ = vk.Close() }()
+	log.Println("valkey connected")
+
 	app := fiber.New(fiber.Config{
 		AppName:      "game-portal-api",
 		ReadTimeout:  10 * time.Second,
@@ -39,8 +46,9 @@ func main() {
 	app.Use(middleware.Logging())
 
 	handlers.Register(app, handlers.Deps{
-		Cfg: cfg,
-		DB:  db,
+		Cfg:    cfg,
+		DB:     db,
+		Valkey: vk,
 	})
 
 	if cfg.Env != "prod" {
