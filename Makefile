@@ -1,7 +1,7 @@
 g:
 	git pull
 	git add .
-	git commit -m "Leaderboard Submit + Valkey ZSET"
+	git commit -m "Leaderboard view API + UI"
 	git push
 
 dev:

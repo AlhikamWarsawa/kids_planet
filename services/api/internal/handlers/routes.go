@@ -42,6 +42,8 @@ func Register(app *fiber.App, deps Deps) {
 	api.Post("/sessions/start", sessionsHandler.Start)
 
 	leaderboardHandler := public.NewLeaderboardHandler(leaderboardSvc)
+	api.Get("/leaderboard/:game_id<int>", leaderboardHandler.GetTop)
+
 	api.Post(
 		"/leaderboard/submit",
 		middleware.PlayToken(deps.Cfg),

@@ -247,6 +247,11 @@
 
     <header class="topbar">
         <a class="pill" href="/player">← Back</a>
+
+        {#if gameId}
+            <a class="pill" href={`/leaderboard?game_id=${gameId}&period=daily&scope=game&limit=10`}>Leaderboard</a>
+        {/if}
+
         <div class="title">
             <div class="h1">{game?.title ?? "Play"}</div>
             {#if expiresAt}

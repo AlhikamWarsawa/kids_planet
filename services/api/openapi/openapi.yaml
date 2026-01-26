@@ -3,7 +3,7 @@ openapi: 3.0.3
 info:
   title: Kids Planet Game Portal API
   version: 0.2.0
-  description:
+  description: |
     API for Kids Planet educational HTML5 game portal (Player + Admin + Game SDK).
     Served behind Nginx reverse proxy where /api/* is forwarded to the Go API root.
 
@@ -60,7 +60,7 @@ paths:
 
   /games:
     get:
-      tags: [ Games ]
+      tags: [Games]
       summary: List games for catalog (grid)
       description: |
         Public endpoint for catalog listing with filter & sort.
@@ -79,10 +79,10 @@ paths:
           name: sort
           schema:
             type: string
-            enum: [ newest, popular ]
+            enum: [newest, popular]
             default: newest
           required: false
-          description: "popular accepted as placeholder (falls back to newest for now)."
+          description: popular accepted as placeholder (falls back to newest for now).
         - in: query
           name: page
           schema: { type: integer, minimum: 1, default: 1 }
@@ -110,7 +110,7 @@ paths:
 
   /games/{id}:
     get:
-      tags: [ Games ]
+      tags: [Games]
       summary: Get game detail (public)
       description: |
         Returns game detail needed by play page.
@@ -142,8 +142,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorResponse" }
 
-
-    /auth/admin/login:
+  /auth/admin/login:
     post:
       tags: [Auth]
       summary: Admin login
@@ -196,6 +195,32 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorResponse" }
 
+  /auth/player/register:
+    post:
+      tags: [Auth]
+      summary: Player register (optional)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PlayerRegisterRequest" }
+      responses:
+        "200":
+          description: Player created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuccessResponse" }
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "409":
+          description: Email already exists
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
   /admin/me:
     get:
       tags: [Auth]
@@ -220,33 +245,6 @@ paths:
               schema: { $ref: "#/components/schemas/ErrorResponse" }
         "403":
           description: Forbidden (not admin)
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
-
-
-  /auth/player/register:
-    post:
-      tags: [Auth]
-      summary: Player register (optional)
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/PlayerRegisterRequest" }
-      responses:
-        "200":
-          description: Player created
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/SuccessResponse" }
-        "400":
-          description: Invalid input
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
-        "409":
-          description: Email already exists
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorResponse" }
@@ -310,6 +308,14 @@ paths:
                   - type: object
                     properties:
                       data: { $ref: "#/components/schemas/LeaderboardSubmitResult" }
+              examples:
+                accepted:
+                  value:
+                    data:
+                      accepted: true
+                      flagged: false
+                      flag_reason: null
+                      best_score: 100
         "400":
           description: Invalid score payload
           content:
@@ -334,26 +340,40 @@ paths:
   /leaderboard/{game_id}:
     get:
       tags: [Leaderboard]
-      summary: Get leaderboard for a game
+      summary: Read leaderboard top N (game or global)
+      description: |
+        Reads leaderboard from Valkey ZSET for current day/week.
+        If key doesn't exist yet, returns items: [].
       parameters:
         - in: path
           name: game_id
           required: true
-          schema: { type: integer, format: int64 }
+          schema: { type: integer, format: int64, minimum: 1 }
+          description: Game id used when scope=game. For scope=global it's still required by route (kept for compatibility).
         - in: query
           name: period
           required: false
           schema:
             type: string
             enum: [daily, weekly]
-            default: weekly
+            default: daily
+          description: Leaderboard time window.
+        - in: query
+          name: scope
+          required: false
+          schema:
+            type: string
+            enum: [game, global]
+            default: game
+          description: game = per game leaderboard; global = cross-game leaderboard (may be empty if not populated yet).
         - in: query
           name: limit
           required: false
-          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+          schema: { type: integer, minimum: 1, maximum: 100, default: 10 }
+          description: Top N entries.
       responses:
         "200":
-          description: Leaderboard entries
+          description: Leaderboard view
           content:
             application/json:
               schema:
@@ -361,9 +381,30 @@ paths:
                   - $ref: "#/components/schemas/SuccessResponse"
                   - type: object
                     properties:
-                      data: { $ref: "#/components/schemas/LeaderboardResponse" }
-        "404":
-          description: Game not found
+                      data: { $ref: "#/components/schemas/LeaderboardViewResponse" }
+              examples:
+                ok_game_daily:
+                  value:
+                    data:
+                      game_id: 1
+                      period: daily
+                      scope: game
+                      limit: 10
+                      items:
+                        - member: "g:jb_guest_001"
+                          score: 100
+                        - member: "g:jb_guest_002"
+                          score: 80
+                ok_global_weekly_empty:
+                  value:
+                    data:
+                      game_id: 1
+                      period: weekly
+                      scope: global
+                      limit: 10
+                      items: []
+        "400":
+          description: Invalid query or params
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorResponse" }
@@ -828,7 +869,7 @@ components:
       properties:
         session_id: { type: string, example: "sess_01J..." }
         game_id: { type: integer, format: int64 }
-        play_token: { type: string, description: "Short-lived token for score/events" }
+        play_token: { type: string, description: Short-lived token for score/events }
         expires_in: { type: integer, example: 7200 }
 
     EducationCategory:
@@ -863,7 +904,7 @@ components:
           type: integer
           description: Simple popularity metric (e.g., last 7d plays)
           example: 123
-          
+
     LeaderboardSubmitRequest:
       type: object
       required: [game_id, score, timestamp]
@@ -887,6 +928,25 @@ components:
           type: integer
           description: Best score stored for this user/session in the period
           example: 1200
+
+    LeaderboardItem:
+      type: object
+      required: [member, score]
+      properties:
+        member: { type: string, example: "g:jb_guest_001" }
+        score: { type: integer, example: 100 }
+
+    LeaderboardViewResponse:
+      type: object
+      required: [game_id, period, scope, limit, items]
+      properties:
+        game_id: { type: integer, format: int64, example: 1 }
+        period: { type: string, enum: [daily, weekly], example: daily }
+        scope: { type: string, enum: [game, global], example: game }
+        limit: { type: integer, example: 10 }
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/LeaderboardItem" }
 
     LeaderboardEntry:
       type: object
@@ -1052,7 +1112,7 @@ components:
         age_category_id: { type: integer, format: int64 }
         free: { type: boolean }
         created_at: { type: string, format: date-time }
-      required: [ id, title, slug, age_category_id, free, created_at ]
+      required: [id, title, slug, age_category_id, free, created_at]
 
     GameListData:
       type: object
@@ -1063,7 +1123,7 @@ components:
         page: { type: integer, example: 1 }
         limit: { type: integer, example: 24 }
         total: { type: integer, example: 1 }
-      required: [ items, page, limit, total ]
+      required: [items, page, limit, total]
 
     GameDetail:
       type: object
@@ -1072,8 +1132,11 @@ components:
         title: { type: string }
         slug: { type: string }
         thumbnail: { type: string, nullable: true }
-        game_url: { type: string, nullable: true, description: "URL to load in iframe (served via Nginx/MinIO later)" }
+        game_url:
+          type: string
+          nullable: true
+          description: URL to load in iframe (served via Nginx/MinIO later)
         age_category_id: { type: integer, format: int64 }
         free: { type: boolean }
         created_at: { type: string, format: date-time }
-      required: [ id, title, slug, age_category_id, free, created_at ]
+      required: [id, title, slug, age_category_id, free, created_at]

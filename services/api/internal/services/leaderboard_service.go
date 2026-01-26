@@ -99,6 +99,73 @@ func (s *LeaderboardService) SubmitScore(
 	}, nil
 }
 
+func (s *LeaderboardService) GetTop(
+	ctx context.Context,
+	gameID int64,
+	period string,
+	scope string,
+	limit int,
+) ([]models.LeaderboardItem, error) {
+	if gameID <= 0 {
+		return nil, utils.ErrBadRequest("game_id must be an integer >= 1")
+	}
+
+	period = strings.ToLower(strings.TrimSpace(period))
+	if period == "" {
+		period = "daily"
+	}
+	if period != "daily" && period != "weekly" {
+		return nil, utils.ErrBadRequest("period must be 'daily' or 'weekly'")
+	}
+
+	scope = strings.ToLower(strings.TrimSpace(scope))
+	if scope == "" {
+		scope = "game"
+	}
+	if scope != "game" && scope != "global" {
+		return nil, utils.ErrBadRequest("scope must be 'game' or 'global'")
+	}
+
+	if limit <= 0 {
+		limit = 10
+	}
+	if limit > 100 {
+		return nil, utils.ErrBadRequest("limit must be an integer between 1 and 100")
+	}
+
+	now := time.Now().UTC()
+
+	var key string
+	if scope == "game" {
+		if period == "daily" {
+			key = clients.KeyGameDaily(gameID, now)
+		} else {
+			key = clients.KeyGameWeekly(gameID, now)
+		}
+	} else {
+		if period == "daily" {
+			key = clients.KeyGlobalDaily(now)
+		} else {
+			key = clients.KeyGlobalWeekly(now)
+		}
+	}
+
+	rows, err := s.valkey.ZRevRangeWithScores(ctx, key, 0, int64(limit-1))
+	if err != nil {
+		return nil, utils.ErrInternal()
+	}
+
+	items := make([]models.LeaderboardItem, 0, len(rows))
+	for _, r := range rows {
+		items = append(items, models.LeaderboardItem{
+			Member: r.Member,
+			Score:  int(r.Score),
+		})
+	}
+
+	return items, nil
+}
+
 func (s *LeaderboardService) upsertIfHigher(
 	ctx context.Context,
 	key string,

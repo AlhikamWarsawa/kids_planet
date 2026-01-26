@@ -1,7 +1,10 @@
 @base = http://localhost:8080/api
 #@base = http://localhost/api
+
 @game_id = 1
+@other_game_id = 2
 @guest_id = guest_001
+@limit = 10
 
 ### Health
 GET {{base}}/health
@@ -22,6 +25,7 @@ Content-Type: application/json
     const exp = response.body?.data?.expires_at;
     if (exp) client.global.set("PLAY_EXPIRES_AT", exp);
 %}
+
 
 ### Submit score valid (200)
 POST {{base}}/leaderboard/submit
@@ -78,7 +82,6 @@ Content-Type: application/json
 }
 
 ### Mismatch game_id (403)
-@other_game_id = 2
 POST {{base}}/leaderboard/submit
 Authorization: Bearer {{PLAY_TOKEN}}
 X-Guest-Id: {{guest_id}}
@@ -110,3 +113,39 @@ Content-Type: application/json
   "game_id": {{game_id}},
   "score": "NaN"
 }
+
+### Get leaderboard (game daily)
+GET {{base}}/leaderboard/{{game_id}}?period=daily&scope=game&limit={{limit}}
+Accept: application/json
+
+### Get leaderboard (game weekly)
+GET {{base}}/leaderboard/{{game_id}}?period=weekly&scope=game&limit={{limit}}
+Accept: application/json
+
+### Get leaderboard (global daily)
+GET {{base}}/leaderboard/{{game_id}}?period=daily&scope=global&limit={{limit}}
+Accept: application/json
+
+### Get leaderboard (global weekly)
+GET {{base}}/leaderboard/{{game_id}}?period=weekly&scope=global&limit={{limit}}
+Accept: application/json
+
+### invalid game_id (400)
+GET {{base}}/leaderboard/0?period=daily&scope=game&limit={{limit}}
+Accept: application/json
+
+### invalid period (400)
+GET {{base}}/leaderboard/{{game_id}}?period=month&scope=game&limit={{limit}}
+Accept: application/json
+
+### invalid scope (400)
+GET {{base}}/leaderboard/{{game_id}}?period=daily&scope=all&limit={{limit}}
+Accept: application/json
+
+### invalid limit (400)
+GET {{base}}/leaderboard/{{game_id}}?period=daily&scope=game&limit=999
+Accept: application/json
+
+### missing params
+GET {{base}}/leaderboard/{{game_id}}
+Accept: application/json

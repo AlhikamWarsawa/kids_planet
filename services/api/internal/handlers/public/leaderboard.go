@@ -2,6 +2,7 @@ package public
 
 import (
 	"context"
+	"strconv"
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
@@ -63,4 +64,52 @@ func getTokenGameID(c *fiber.Ctx) (int64, bool) {
 	default:
 		return 0, false
 	}
+}
+
+func (h *LeaderboardHandler) GetTop(c *fiber.Ctx) error {
+	gameIDStr := strings.TrimSpace(c.Params("game_id", ""))
+	gameID, err := strconv.ParseInt(gameIDStr, 10, 64)
+	if err != nil || gameID < 1 {
+		return utils.Fail(c, utils.ErrBadRequest("game_id must be an integer >= 1"))
+	}
+
+	period := strings.TrimSpace(c.Query("period", ""))
+	scope := strings.TrimSpace(c.Query("scope", ""))
+
+	limit := 0
+	limitStr := strings.TrimSpace(c.Query("limit", ""))
+	if limitStr != "" {
+		v, err := strconv.Atoi(limitStr)
+		if err != nil {
+			return utils.Fail(c, utils.ErrBadRequest("limit must be an integer between 1 and 100"))
+		}
+		limit = v
+	}
+
+	ctx := context.Background()
+
+	items, svcErr := h.svc.GetTop(ctx, gameID, period, scope, limit)
+	if svcErr != nil {
+		return failFromServiceErr(c, svcErr)
+	}
+
+	p := strings.ToLower(strings.TrimSpace(period))
+	if p == "" {
+		p = "daily"
+	}
+	s := strings.ToLower(strings.TrimSpace(scope))
+	if s == "" {
+		s = "game"
+	}
+	if limit <= 0 {
+		limit = 10
+	}
+
+	return utils.Success(c, models.LeaderboardViewResponse{
+		GameID: gameID,
+		Period: p,
+		Scope:  s,
+		Limit:  limit,
+		Items:  items,
+	})
 }

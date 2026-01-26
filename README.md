@@ -49,14 +49,14 @@ kids-planet
 ## Development
 
 ```bash
-make up
+make dev
 ```
 
 ---
 
 ## Production
 ```bash
-make inf
+make prod
 ```
 
 ---
