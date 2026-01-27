@@ -1,0 +1,520 @@
+# Flow: health -> admin auth -> games -> session -> submit -> leaderboard
+
+#@base_url = http://localhost:8080
+@base_url = http://localhost
+
+@api = {{base_url}}/api
+@json = application/json
+
+@admin_email = admin@kidsplanet.com
+@admin_password = 12345678
+
+@game_id = 1
+@other_game_id = 2
+@guest_id = guest_001
+@limit = 10
+
+### Health (200)
+GET {{api}}/health
+Accept: {{json}}
+
+> {%
+    client.test("health status 200", function () {
+        client.assert(response.status === 200, "Expected 200, got " + response.status);
+    });
+    client.test("health has data", function () {
+        client.assert(response.body && response.body.data, "Missing body.data");
+    });
+%}
+
+### Admin Login (200) -> set admin_token
+POST {{api}}/auth/admin/login
+Accept: {{json}}
+Content-Type: {{json}}
+
+{
+  "email": "{{admin_email}}",
+  "password": "{{admin_password}}"
+}
+
+> {%
+    client.test("admin login status 200", function () {
+        client.assert(response.status === 200, "Expected 200, got " + response.status);
+    });
+
+    const body = response.body;
+    client.test("has data.access_token", function () {
+        client.assert(body && body.data && body.data.access_token, "Missing data.access_token");
+    });
+
+    client.global.set("admin_token", body.data.access_token);
+%}
+
+### Admin Me (200)
+GET {{api}}/admin/me
+Accept: {{json}}
+Authorization: Bearer {{admin_token}}
+
+> {%
+    client.test("admin/me status 200", function () {
+        client.assert(response.status === 200, "Expected 200, got " + response.status);
+    });
+
+    const body = response.body;
+    client.test("admin/me has id/email/role", function () {
+        client.assert(body && body.data, "Missing body.data");
+        client.assert(typeof body.data.id !== "undefined", "Missing data.id");
+        client.assert(typeof body.data.email !== "undefined", "Missing data.email");
+        client.assert(typeof body.data.role !== "undefined", "Missing data.role");
+    });
+
+    client.test("admin/me role is admin", function () {
+        client.assert(body.data.role === "admin", "Expected role=admin, got " + body.data.role);
+    });
+%}
+
+### Admin Ping (200)
+GET {{api}}/admin/ping
+Accept: {{json}}
+Authorization: Bearer {{admin_token}}
+
+> {%
+    client.test("admin/ping status 200", function () {
+        client.assert(response.status === 200, "Expected 200, got " + response.status);
+    });
+
+    client.test("admin/ping data.ok === true", function () {
+        client.assert(response.body && response.body.data && response.body.data.ok === true, "Expected data.ok === true");
+    });
+%}
+
+### Admin Me without token (401)
+GET {{api}}/admin/me
+Accept: {{json}}
+
+> {%
+    client.test("admin/me without token is 401", function () {
+        client.assert(response.status === 401, "Expected 401, got " + response.status);
+    });
+    client.test("error envelope exists", function () {
+        client.assert(response.body && response.body.error && response.body.error.code, "Missing error.code");
+        client.assert(response.body && response.body.error && response.body.error.message, "Missing error.message");
+    });
+%}
+
+### Admin Me invalid token (401)
+GET {{api}}/admin/me
+Accept: {{json}}
+Authorization: Bearer abc
+
+> {%
+    client.test("admin/me invalid token is 401", function () {
+        client.assert(response.status === 401, "Expected 401, got " + response.status);
+    });
+%}
+
+### Admin Login wrong password (401)
+POST {{api}}/auth/admin/login
+Accept: {{json}}
+Content-Type: {{json}}
+
+{
+  "email": "{{admin_email}}",
+  "password": "wrong-password"
+}
+
+> {%
+    client.test("login wrong password is 401", function () {
+        client.assert(response.status === 401, "Expected 401, got " + response.status);
+    });
+%}
+
+### GET /api/games (200)
+GET {{api}}/games
+Accept: {{json}}
+
+> {%
+    client.test("GET /games returns 200", function() {
+        client.assert(response.status === 200, "Expected 200, got " + response.status);
+    });
+
+    client.test("Response has data.items/page/limit/total", function() {
+        client.assert(!!response.body.data, "Missing data");
+        client.assert(Array.isArray(response.body.data.items), "data.items must be array");
+        client.assert(typeof response.body.data.page === "number", "data.page must be number");
+        client.assert(typeof response.body.data.limit === "number", "data.limit must be number");
+        client.assert(typeof response.body.data.total === "number", "data.total must be number");
+    });
+
+    // optional: store first game id if exists
+    const items = response.body?.data?.items || [];
+    if (items.length > 0 && items[0].id) {
+        client.global.set("first_game_id", items[0].id);
+    }
+%}
+
+### GET /api/games filter age (200)
+GET {{api}}/games?age_category_id=1
+Accept: {{json}}
+
+> {%
+    client.test("Filter by age_category_id works (200)", function() {
+        client.assert(response.status === 200, "Expected 200, got " + response.status);
+    });
+
+    client.test("All items match age_category_id=1 (if any)", function() {
+        var items = response.body.data.items || [];
+        for (var i = 0; i < items.length; i++) {
+            client.assert(items[i].age_category_id === 1, "Mismatch: " + JSON.stringify(items[i]));
+        }
+    });
+%}
+
+### GET /api/games invalid age_category_id (400)
+GET {{api}}/games?age_category_id=abc
+Accept: {{json}}
+
+> {%
+    client.test("invalid age_category_id returns 400", function() {
+        client.assert(response.status === 400, "Expected 400, got " + response.status);
+    });
+    client.test("error envelope exists", function () {
+        client.assert(response.body && response.body.error && response.body.error.code, "Missing error.code");
+        client.assert(response.body && response.body.error && response.body.error.message, "Missing error.message");
+    });
+%}
+
+### GET /api/games invalid limit (400)
+GET {{api}}/games?limit=9999
+Accept: {{json}}
+
+> {%
+    client.test("invalid limit returns 400", function() {
+        client.assert(response.status === 400, "Expected 400, got " + response.status);
+    });
+%}
+
+### GET /api/games/{id} valid (200 or 404 depending seed)
+GET {{api}}/games/{{game_id}}
+Accept: {{json}}
+
+> {%
+    client.test("GET /games/{id} is 200 or 404", function() {
+        client.assert([200,404].includes(response.status), "Expected 200 or 404, got " + response.status);
+    });
+
+    if (response.status === 200) {
+        client.test("detail has data.id", function() {
+            client.assert(response.body && response.body.data && response.body.data.id, "Missing body.data.id");
+        });
+    }
+%}
+
+### GET /api/games/{id} id=0 (400)
+GET {{api}}/games/0
+Accept: {{json}}
+
+> {%
+    client.test("GET /games/0 returns 400", function() {
+        client.assert(response.status === 400, "Expected 400, got " + response.status);
+    });
+%}
+
+### Start session valid (200) -> set PLAY_TOKEN
+POST {{api}}/sessions/start
+Accept: {{json}}
+Content-Type: {{json}}
+
+{
+  "game_id": {{game_id}}
+}
+
+> {%
+    client.test("start session returns 200", function() {
+        client.assert(response.status === 200, "Expected 200, got " + response.status);
+    });
+
+    const t = response.body?.data?.play_token;
+    if (!t) throw new Error("Missing data.play_token from /sessions/start");
+    client.global.set("PLAY_TOKEN", t);
+
+    const exp = response.body?.data?.expires_at;
+    if (exp) client.global.set("PLAY_EXPIRES_AT", exp);
+%}
+
+### Start session missing body (400)
+POST {{api}}/sessions/start
+Accept: {{json}}
+Content-Type: {{json}}
+
+> {%
+    client.test("missing body returns 400", function() {
+        client.assert(response.status === 400, "Expected 400, got " + response.status);
+    });
+%}
+
+### Start session game_id string (400)
+POST {{api}}/sessions/start
+Accept: {{json}}
+Content-Type: {{json}}
+
+{
+  "game_id": "abc"
+}
+
+> {%
+    client.test("game_id string returns 400", function() {
+        client.assert(response.status === 400, "Expected 400, got " + response.status);
+    });
+%}
+
+### Start session game not found (400)
+POST {{api}}/sessions/start
+Accept: {{json}}
+Content-Type: {{json}}
+
+{
+  "game_id": 999999
+}
+
+> {%
+    client.test("game not found/not active returns 400", function() {
+        client.assert(response.status === 400, "Expected 400, got " + response.status);
+    });
+%}
+
+### Submit score valid (200)
+POST {{api}}/leaderboard/submit
+Accept: {{json}}
+Authorization: Bearer {{PLAY_TOKEN}}
+X-Guest-Id: {{guest_id}}
+Content-Type: {{json}}
+
+{
+  "game_id": {{game_id}},
+  "score": 100
+}
+
+> {%
+    client.test("submit valid returns 200", function() {
+        client.assert(response.status === 200, "Expected 200, got " + response.status);
+    });
+    client.test("submit response has accepted/best_score", function() {
+        const d = response.body?.data;
+        client.assert(d && typeof d.accepted === "boolean", "Missing data.accepted");
+        client.assert(d && typeof d.best_score === "number", "Missing data.best_score");
+    });
+%}
+
+### Submit lower score should still 200 and best_score stays >= 100
+POST {{api}}/leaderboard/submit
+Accept: {{json}}
+Authorization: Bearer {{PLAY_TOKEN}}
+X-Guest-Id: {{guest_id}}
+Content-Type: {{json}}
+
+{
+  "game_id": {{game_id}},
+  "score": 90
+}
+
+> {%
+    client.test("submit lower returns 200", function() {
+        client.assert(response.status === 200, "Expected 200, got " + response.status);
+    });
+    client.test("best_score not downgraded", function() {
+        const d = response.body?.data;
+        client.assert(d && d.best_score >= 100, "Expected best_score >= 100, got " + (d ? d.best_score : "nil"));
+    });
+%}
+
+### Missing token (401)
+POST {{api}}/leaderboard/submit
+Accept: {{json}}
+X-Guest-Id: {{guest_id}}
+Content-Type: {{json}}
+
+{
+  "game_id": {{game_id}},
+  "score": 10
+}
+
+> {%
+    client.test("missing token returns 401", function() {
+        client.assert(response.status === 401, "Expected 401, got " + response.status);
+    });
+%}
+
+### Invalid token (401)
+POST {{api}}/leaderboard/submit
+Accept: {{json}}
+Authorization: Bearer invalid.token.here
+X-Guest-Id: {{guest_id}}
+Content-Type: {{json}}
+
+{
+  "game_id": {{game_id}},
+  "score": 10
+}
+
+> {%
+    client.test("invalid token returns 401", function() {
+        client.assert(response.status === 401, "Expected 401, got " + response.status);
+    });
+%}
+
+### Mismatch game_id (403)
+POST {{api}}/leaderboard/submit
+Accept: {{json}}
+Authorization: Bearer {{PLAY_TOKEN}}
+X-Guest-Id: {{guest_id}}
+Content-Type: {{json}}
+
+{
+  "game_id": {{other_game_id}},
+  "score": 10
+}
+
+> {%
+    client.test("mismatch game_id returns 403", function() {
+        client.assert(response.status === 403, "Expected 403, got " + response.status);
+    });
+%}
+
+### score negatif (400)
+POST {{api}}/leaderboard/submit
+Accept: {{json}}
+Authorization: Bearer {{PLAY_TOKEN}}
+X-Guest-Id: {{guest_id}}
+Content-Type: {{json}}
+
+{
+  "game_id": {{game_id}},
+  "score": -1
+}
+
+> {%
+    client.test("negative score returns 400", function() {
+        client.assert(response.status === 400, "Expected 400, got " + response.status);
+    });
+%}
+
+### score non-integer (400)
+POST {{api}}/leaderboard/submit
+Accept: {{json}}
+Authorization: Bearer {{PLAY_TOKEN}}
+X-Guest-Id: {{guest_id}}
+Content-Type: {{json}}
+
+{
+  "game_id": {{game_id}},
+  "score": "NaN"
+}
+
+> {%
+    client.test("non-integer score returns 400", function() {
+        client.assert(response.status === 400, "Expected 400, got " + response.status);
+    });
+%}
+
+### missing guest id (400)
+POST {{api}}/leaderboard/submit
+Accept: {{json}}
+Authorization: Bearer {{PLAY_TOKEN}}
+Content-Type: {{json}}
+
+{
+  "game_id": {{game_id}},
+  "score": 10
+}
+
+> {%
+    client.test("missing guest id returns 400", function() {
+        client.assert(response.status === 400, "Expected 400, got " + response.status);
+    });
+%}
+
+### Get leaderboard (game daily)
+GET {{api}}/leaderboard/{{game_id}}?period=daily&scope=game&limit={{limit}}
+Accept: {{json}}
+
+> {%
+    client.test("get leaderboard daily returns 200", function() {
+        client.assert(response.status === 200, "Expected 200, got " + response.status);
+    });
+    client.test("shape ok", function() {
+        const d = response.body?.data;
+        client.assert(d && Array.isArray(d.items), "data.items must be array");
+    });
+%}
+
+### Get leaderboard (game weekly)
+GET {{api}}/leaderboard/{{game_id}}?period=weekly&scope=game&limit={{limit}}
+Accept: {{json}}
+
+> {%
+    client.test("get leaderboard weekly returns 200", function() {
+        client.assert(response.status === 200, "Expected 200, got " + response.status);
+    });
+%}
+
+### missing params -> defaults (200)
+GET {{api}}/leaderboard/{{game_id}}
+Accept: {{json}}
+
+> {%
+    client.test("get leaderboard defaults returns 200", function() {
+        client.assert(response.status === 200, "Expected 200, got " + response.status);
+    });
+%}
+
+### invalid game_id (400)
+GET {{api}}/leaderboard/0?period=daily&scope=game&limit={{limit}}
+Accept: {{json}}
+
+> {%
+    client.test("invalid game_id returns 400", function() {
+        client.assert(response.status === 400, "Expected 400, got " + response.status);
+    });
+%}
+
+### invalid period (400)
+GET {{api}}/leaderboard/{{game_id}}?period=month&scope=game&limit={{limit}}
+Accept: {{json}}
+
+> {%
+    client.test("invalid period returns 400", function() {
+        client.assert(response.status === 400, "Expected 400, got " + response.status);
+    });
+%}
+
+### invalid scope (400)
+GET {{api}}/leaderboard/{{game_id}}?period=daily&scope=all&limit={{limit}}
+Accept: {{json}}
+
+> {%
+    client.test("invalid scope returns 400", function() {
+        client.assert(response.status === 400, "Expected 400, got " + response.status);
+    });
+%}
+
+### invalid limit (400)
+GET {{api}}/leaderboard/{{game_id}}?period=daily&scope=game&limit=999
+Accept: {{json}}
+
+> {%
+    client.test("invalid limit returns 400", function() {
+        client.assert(response.status === 400, "Expected 400, got " + response.status);
+    });
+%}
+
+### admin/ping with play_token should be 401/403
+GET {{api}}/admin/ping
+Accept: {{json}}
+Authorization: Bearer {{PLAY_TOKEN}}
+
+> {%
+    client.test("admin/ping with play_token is blocked", function() {
+        client.assert([401,403].includes(response.status), "Expected 401/403, got " + response.status);
+    });
+%}

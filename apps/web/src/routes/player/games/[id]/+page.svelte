@@ -1,6 +1,5 @@
 <script lang="ts">
     import { onMount } from "svelte";
-    import { get } from "svelte/store";
     import { page } from "$app/stores";
     import { browser } from "$app/environment";
 
@@ -8,6 +7,9 @@
     import { api, ApiError } from "$lib/api/client";
     import { getGame } from "$lib/api/games";
     import type { GameDetail } from "$lib/types/game";
+
+    import { getLeaderboard } from "$lib/api/leaderboard";
+    import type { LeaderboardViewResponse, LeaderboardItem } from "$lib/api/leaderboard";
 
     let gameId: number | null = null;
     let game: GameDetail | null = null;
@@ -24,8 +26,16 @@
     let submitError: string | null = null;
     let submitResult: { accepted: boolean; best_score: number } | null = null;
 
+    let lbStage: "idle" | "loading" | "ready" | "error" = "idle";
+    let lbError: string | null = null;
+    let lbItems: LeaderboardItem[] = [];
+    let lbReqSeq = 0;
+
     let toastMsg: string | null = null;
     let toastTimer: any = null;
+
+    let initialized = false;
+    let lastRouteId: string | null = null;
 
     function showToast(msg: string) {
         toastMsg = msg;
@@ -56,9 +66,8 @@
         }
     }
 
-    function parseGameId(): number | null {
-        const idStr = (get(page).params as any)?.id;
-        const n = Number(idStr);
+    function parseGameIdFromParam(raw: any): number | null {
+        const n = Number(raw);
         if (!Number.isFinite(n) || n <= 0) return null;
         return n;
     }
@@ -127,7 +136,49 @@
         return { ok: true, value: i };
     }
 
+    function shortenMember(member: string): string {
+        const m = (member ?? "").trim();
+        if (!m) return "-";
+
+        if (m.startsWith("g:")) {
+            const raw = m.slice(2);
+            const head = raw.slice(0, 8);
+            return head ? `guest:${head}` : "guest";
+        }
+
+        if (m.length <= 16) return m;
+        return `${m.slice(0, 10)}…${m.slice(-4)}`;
+    }
+
+    async function loadLeaderboardForPlayPage() {
+        if (!gameId) return;
+
+        const seq = ++lbReqSeq;
+        lbStage = "loading";
+        lbError = null;
+
+        try {
+            const res: LeaderboardViewResponse = await getLeaderboard(gameId, {
+                period: "daily",
+                scope: "game",
+                limit: 10,
+            });
+
+            if (seq !== lbReqSeq) return;
+
+            lbItems = res.items ?? [];
+            lbStage = "ready";
+        } catch (e) {
+            if (seq !== lbReqSeq) return;
+
+            lbStage = "error";
+            lbError = e instanceof ApiError ? `${e.code}: ${e.message}` : "Failed to load leaderboard.";
+        }
+    }
+
     async function submitScoreDev() {
+        if (submitLoading) return;
+
         submitError = null;
         submitResult = null;
 
@@ -169,6 +220,8 @@
 
             submitResult = res;
             showToast(`Submitted best_score=${res.best_score}`);
+
+            await loadLeaderboardForPlayPage();
         } catch (e) {
             const msg = e instanceof ApiError ? `${e.code}: ${e.message}` : "Submit failed.";
             submitError = msg;
@@ -187,7 +240,13 @@
         submitError = null;
         submitResult = null;
 
-        const gid = parseGameId();
+        lbStage = "idle";
+        lbError = null;
+        lbItems = [];
+
+        const rid = ($page.params as any)?.id;
+        const gid = parseGameIdFromParam(rid);
+
         if (!gid) {
             stage = "error";
             errorMsg = "Invalid game id.";
@@ -201,7 +260,11 @@
             game = await getGame(gid);
         } catch (e) {
             stage = "error";
-            errorMsg = e instanceof ApiError ? e.message : "Failed to fetch game detail.";
+            if (e instanceof ApiError && e.status === 404) {
+                errorMsg = "Game not found / not active.";
+            } else {
+                errorMsg = e instanceof ApiError ? e.message : "Failed to fetch game detail.";
+            }
             return;
         }
 
@@ -227,13 +290,26 @@
         }
 
         stage = "ready";
+
+        await loadLeaderboardForPlayPage();
     }
 
     onMount(async () => {
         session.loadFromStorage();
         guestId = getOrCreateGuestId();
+        initialized = true;
+
+        lastRouteId = String(($page.params as any)?.id ?? "");
         await run();
     });
+
+    $: if (initialized && browser) {
+        const rid = String(($page.params as any)?.id ?? "");
+        if (rid !== lastRouteId) {
+            lastRouteId = rid;
+            run();
+        }
+    }
 </script>
 
 <svelte:head>
@@ -249,7 +325,7 @@
         <a class="pill" href="/player">← Back</a>
 
         {#if gameId}
-            <a class="pill" href={`/leaderboard?game_id=${gameId}&period=daily&scope=game&limit=10`}>Leaderboard</a>
+            <a class="pill" href={`/player/leaderboard?game_id=${gameId}&period=daily&scope=game&limit=10`}>Leaderboard</a>
         {/if}
 
         <div class="title">
@@ -265,17 +341,23 @@
             <div class="state-title">Loading game…</div>
             <div class="state-sub">Fetching game detail</div>
         </div>
+
     {:else if stage === "starting_session"}
         <div class="state">
             <div class="state-title">Starting session…</div>
             <div class="state-sub">Requesting play token</div>
         </div>
+
     {:else if stage === "error"}
         <div class="state error" role="alert">
             <div class="state-title">Error</div>
             <div class="state-sub">{errorMsg ?? "Something went wrong."}</div>
-            <button class="pill mt" type="button" on:click={run}>Retry</button>
+            <div class="rowBtns">
+                <button class="pill mt" type="button" on:click={run}>Retry</button>
+                <a class="pill mt" href="/player">Back to catalog</a>
+            </div>
         </div>
+
     {:else if stage === "ready" && game?.game_url}
         <section class="devPanel" aria-label="Dev tools">
             <div class="devTitle">Dev tools</div>
@@ -290,7 +372,12 @@
                         bind:value={devScore}
                         min="0"
                 />
-                <button class="pill devBtn" type="button" on:click={submitScoreDev} disabled={submitLoading}>
+                <button
+                        class="pill devBtn"
+                        type="button"
+                        on:click={submitScoreDev}
+                        disabled={submitLoading}
+                >
                     {submitLoading ? "Submitting…" : "Submit Score (dev)"}
                 </button>
             </div>
@@ -305,8 +392,44 @@
             {/if}
             {#if submitResult}
                 <div class="devOk">
-                    accepted: <b>{submitResult.accepted ? "true" : "false"}</b> · best_score: <b>{submitResult.best_score}</b>
+                    accepted: <b>{submitResult.accepted ? "true" : "false"}</b>
+                    · best_score: <b>{submitResult.best_score}</b>
                 </div>
+            {/if}
+        </section>
+
+        <section class="lbPanel" aria-label="Leaderboard panel">
+            <div class="lbHead">
+                <div class="lbTitle">Leaderboard (daily · game)</div>
+                <button class="pill sm" type="button" on:click={loadLeaderboardForPlayPage} disabled={lbStage === "loading"}>
+                    {lbStage === "loading" ? "Loading…" : "Refresh"}
+                </button>
+            </div>
+
+            {#if lbStage === "loading"}
+                <div class="lbState">Loading leaderboard…</div>
+            {:else if lbStage === "error"}
+                <div class="lbError" role="alert">
+                    <div><b>Error</b></div>
+                    <div>{lbError ?? "Failed."}</div>
+                    <button class="pill sm mt2" type="button" on:click={loadLeaderboardForPlayPage}>Retry</button>
+                </div>
+            {:else if lbStage === "ready"}
+                {#if lbItems.length === 0}
+                    <div class="lbEmpty">Belum ada skor</div>
+                {:else}
+                    <ol class="lbList">
+                        {#each lbItems as it, idx (it.member)}
+                            <li class="lbRow">
+                                <div class="lbRank">#{idx + 1}</div>
+                                <div class="lbMember" title={it.member}>{shortenMember(it.member)}</div>
+                                <div class="lbScore">{it.score}</div>
+                            </li>
+                        {/each}
+                    </ol>
+                {/if}
+            {:else}
+                <div class="lbEmpty">Belum ada skor</div>
             {/if}
         </section>
 
@@ -330,8 +453,8 @@
         padding: 16px;
         font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
         background: #fff;
-        overflow: hidden;
         box-sizing: border-box;
+        overflow-x: hidden;
     }
 
     .toast {
@@ -361,10 +484,7 @@
         flex-wrap: wrap;
     }
 
-    .title {
-        min-width: 0;
-        flex: 1 1 auto;
-    }
+    .title { min-width: 0; flex: 1 1 auto; }
 
     .h1 {
         font-weight: 800;
@@ -395,13 +515,14 @@
         white-space: nowrap;
     }
 
-    .pill:hover {
-        background: #f5f5f5;
-    }
+    .pill:hover { background: #f5f5f5; }
+    .pill:disabled { opacity: 0.6; cursor: not-allowed; }
 
-    .pill:disabled {
-        opacity: 0.6;
-        cursor: not-allowed;
+    .pill.sm {
+        padding: 8px 12px;
+        border-width: 3px;
+        font-weight: 900;
+        font-size: 12px;
     }
 
     .state {
@@ -425,13 +546,10 @@
         font-size: 13px;
     }
 
-    .error {
-        border-color: #ef4444;
-    }
+    .error { border-color: #ef4444; }
+    .mt { margin-top: 12px; }
 
-    .mt {
-        margin-top: 12px;
-    }
+    .rowBtns { display: flex; gap: 10px; flex-wrap: wrap; }
 
     .devPanel {
         border: 4px dashed #666;
@@ -475,10 +593,7 @@
         outline: none;
     }
 
-    .devBtn {
-        padding: 10px 14px;
-        border-width: 3px;
-    }
+    .devBtn { padding: 10px 14px; border-width: 3px; }
 
     .devMeta {
         margin-top: 8px;
@@ -510,14 +625,103 @@
         font-size: 12px;
     }
 
+    .lbPanel {
+        border: 4px solid #666;
+        border-radius: 14px;
+        padding: 12px;
+        background: #fff;
+        box-sizing: border-box;
+        margin-bottom: 12px;
+        max-width: 920px;
+    }
+
+    .lbHead {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-bottom: 10px;
+    }
+
+    .lbTitle {
+        font-weight: 900;
+        color: #222;
+        font-size: 12px;
+        letter-spacing: 0.3px;
+        text-transform: uppercase;
+        opacity: 0.9;
+    }
+
+    .lbState {
+        font-weight: 900;
+        font-size: 12px;
+        color: #222;
+        opacity: 0.8;
+        padding: 6px 2px;
+    }
+
+    .lbEmpty {
+        font-weight: 900;
+        font-size: 12px;
+        color: #222;
+        opacity: 0.8;
+        padding: 6px 2px;
+    }
+
+    .lbError {
+        border: 3px solid #ef4444;
+        border-radius: 12px;
+        padding: 10px 12px;
+        color: #991b1b;
+        font-weight: 900;
+        font-size: 12px;
+        background: #fff;
+    }
+
+    .mt2 { margin-top: 8px; }
+
+    .lbList {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        display: grid;
+        gap: 8px;
+    }
+
+    .lbRow {
+        display: grid;
+        grid-template-columns: 70px 1fr 120px;
+        gap: 10px;
+        align-items: center;
+        border: 3px solid #666;
+        border-radius: 12px;
+        padding: 10px 12px;
+        box-sizing: border-box;
+    }
+
+    .lbRank { font-weight: 900; font-size: 12px; color: #222; opacity: 0.9; }
+    .lbMember {
+        font-weight: 900;
+        font-size: 12px;
+        color: #222;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .lbScore { text-align: right; font-weight: 900; font-size: 12px; color: #222; }
+
     .frameWrap {
         width: 100%;
-        height: calc(100vh - 190px);
         border: 4px solid #666;
         border-radius: 14px;
         overflow: hidden;
         box-sizing: border-box;
         background: #fff;
+
+        height: min(62vh, 720px);
+        min-height: 420px;
     }
 
     .frame {
@@ -528,14 +732,9 @@
     }
 
     @media (min-width: 720px) {
-        .screen {
-            padding: 20px;
-        }
-        .h1 {
-            font-size: 20px;
-        }
-        .frameWrap {
-            height: calc(100vh - 200px);
-        }
+        .screen { padding: 20px; }
+        .h1 { font-size: 20px; }
+        .frameWrap { height: min(68vh, 760px); }
+        .lbRow { grid-template-columns: 80px 1fr 140px; }
     }
 </style>

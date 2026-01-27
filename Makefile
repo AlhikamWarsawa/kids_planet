@@ -1,7 +1,7 @@
 g:
 	git pull
 	git add .
-	git commit -m "Leaderboard view API + UI"
+	git commit -m "Vertical Slice Finishing"
 	git push
 
 dev:

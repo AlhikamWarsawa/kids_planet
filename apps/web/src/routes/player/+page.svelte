@@ -30,7 +30,9 @@
 
     let loading = false;
     let loadingMore = false;
-    let error: string | null = null;
+
+    let errorInitial: string | null = null;
+    let errorMore: string | null = null;
 
     let selectedAge: number | null = null;
     let selectedCategory: number | null = null;
@@ -62,7 +64,9 @@
         const seq = ++reqSeq;
 
         if (!opts.keepList) loading = true;
-        error = null;
+
+        errorInitial = null;
+        errorMore = null;
 
         try {
             const res = await listGames({
@@ -82,10 +86,13 @@
         } catch (e) {
             if (seq !== reqSeq) return;
 
-            error = e instanceof ApiError ? e.message : 'Failed to load games';
-            games = [];
-            total = 0;
-            page = 1;
+            errorInitial = e instanceof ApiError ? e.message : 'Failed to load games';
+
+            if (!opts.keepList) {
+                games = [];
+                total = 0;
+                page = 1;
+            }
         } finally {
             if (seq === reqSeq) loading = false;
         }
@@ -96,7 +103,7 @@
 
         const seq = ++reqSeq;
         loadingMore = true;
-        error = null;
+        errorMore = null;
 
         try {
             const res = await listGames({
@@ -115,7 +122,7 @@
             total = res.total;
         } catch (e) {
             if (seq !== reqSeq) return;
-            error = e instanceof ApiError ? e.message : 'Failed to load more games';
+            errorMore = e instanceof ApiError ? e.message : 'Failed to load more games';
         } finally {
             if (seq === reqSeq) loadingMore = false;
         }
@@ -166,22 +173,46 @@
             </div>
         </div>
 
-        {#if error}
-            <div class="state" role="alert">{error}</div>
-        {/if}
-
         {#if loading}
-            <div class="grid">
+            <div class="grid" aria-busy="true" aria-live="polite">
                 {#each Array(8) as _, i (i)}
                     <div class="box skeleton" aria-hidden="true"></div>
                 {/each}
             </div>
-        {:else if !error && games.length === 0}
+
+        {:else if errorInitial && games.length === 0}
+            <div class="state error" role="alert">
+                <div class="state-title">Gagal load games</div>
+                <div class="state-sub">{errorInitial}</div>
+                <div class="actions">
+                    <button class="pill" type="button" on:click={() => loadInitial()}>
+                        Retry
+                    </button>
+                </div>
+            </div>
+
+        {:else if games.length === 0}
             <div class="empty">
                 <div class="empty-title">Belum ada game</div>
                 <div class="empty-sub">Coba ubah filter/sort atau cek lagi nanti.</div>
+                {#if errorInitial}
+                    <div class="miniErr" role="alert">{errorInitial}</div>
+                    <button class="pill" type="button" on:click={() => loadInitial()}>
+                        Retry
+                    </button>
+                {/if}
             </div>
+
         {:else}
+            {#if errorInitial}
+                <div class="banner" role="alert">
+                    <span>{errorInitial}</span>
+                    <button class="pill sm" type="button" on:click={() => loadInitial({ keepList: true })}>
+                        Retry
+                    </button>
+                </div>
+            {/if}
+
             <div class="grid">
                 {#each games as game (game.id)}
                     <GameCard {game} />
@@ -193,11 +224,22 @@
                     Showing <b>{games.length}</b> of <b>{total}</b>
                 </div>
 
-                {#if hasMore()}
-                    <button class="pill" on:click={loadMore} disabled={loadingMore}>
-                        {loadingMore ? 'Loading...' : 'Load more'}
-                    </button>
-                {/if}
+                <div class="footerRight">
+                    {#if errorMore}
+                        <div class="moreErr" role="alert">
+                            {errorMore}
+                            <button class="pill sm" type="button" on:click={loadMore} disabled={loadingMore}>
+                                Retry
+                            </button>
+                        </div>
+                    {/if}
+
+                    {#if hasMore()}
+                        <button class="pill" on:click={loadMore} disabled={loadingMore}>
+                            {loadingMore ? 'Loading...' : 'Load more'}
+                        </button>
+                    {/if}
+                </div>
             </div>
         {/if}
 
@@ -262,9 +304,7 @@
         flex-wrap: wrap;
     }
 
-    .left {
-        flex: 0 0 auto;
-    }
+    .left { flex: 0 0 auto; }
 
     .right {
         display: flex;
@@ -284,7 +324,6 @@
         cursor: pointer;
         text-decoration: none;
         color: #222;
-
         box-sizing: border-box;
         max-width: 100%;
         white-space: nowrap;
@@ -292,13 +331,14 @@
         text-overflow: ellipsis;
     }
 
-    .pill:hover {
-        background: #f5f5f5;
-    }
+    .pill:hover { background: #f5f5f5; }
+    .pill:disabled { opacity: 0.6; cursor: not-allowed; }
 
-    .pill:disabled {
-        opacity: 0.6;
-        cursor: not-allowed;
+    .pill.sm {
+        padding: 8px 12px;
+        border-width: 3px;
+        font-weight: 800;
+        font-size: 12px;
     }
 
     .grid {
@@ -309,29 +349,17 @@
     }
 
     @media (min-width: 720px) {
-        .screen {
-            padding: 24px 22px 34px;
-        }
-        .grid {
-            grid-template-columns: repeat(3, minmax(0, 1fr));
-            gap: 20px;
-        }
+        .screen { padding: 24px 22px 34px; }
+        .grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
     }
 
     @media (min-width: 1024px) {
-        .screen {
-            padding: 26px 26px 40px;
-        }
-        .grid {
-            grid-template-columns: repeat(4, minmax(0, 1fr));
-            gap: 24px;
-        }
+        .screen { padding: 26px 26px 40px; }
+        .grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 24px; }
     }
 
     @media (min-width: 1280px) {
-        .grid {
-            grid-template-columns: repeat(5, minmax(0, 1fr));
-        }
+        .grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
     }
 
     .box {
@@ -342,11 +370,7 @@
         box-sizing: border-box;
     }
 
-    .skeleton {
-        position: relative;
-        overflow: hidden;
-    }
-
+    .skeleton { position: relative; overflow: hidden; }
     .skeleton::after {
         content: '';
         position: absolute;
@@ -362,9 +386,7 @@
     }
 
     @keyframes shimmer {
-        100% {
-            transform: translateX(100%);
-        }
+        100% { transform: translateX(100%); }
     }
 
     .footer {
@@ -374,6 +396,14 @@
         margin-top: 18px;
         gap: 12px;
         flex-wrap: wrap;
+    }
+
+    .footerRight {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+        justify-content: flex-end;
     }
 
     .meta {
@@ -386,11 +416,52 @@
         margin: 0 0 14px;
         padding: 14px 16px;
         border-radius: 12px;
-        border: 2px solid #fecaca;
-        background: #fef2f2;
-        color: #991b1b;
-        font-weight: 600;
+        border: 2px solid #666;
+        background: #fff;
+        color: #222;
+        font-weight: 800;
         box-sizing: border-box;
+        max-width: 720px;
+    }
+
+    .state.error {
+        border-color: #ef4444;
+        color: #991b1b;
+        background: #fff;
+    }
+
+    .state-title { font-weight: 900; margin-bottom: 6px; }
+    .state-sub { opacity: 0.85; font-size: 13px; }
+
+    .actions { margin-top: 10px; display: flex; gap: 10px; flex-wrap: wrap; }
+
+    .banner {
+        margin: 0 0 12px;
+        padding: 12px 14px;
+        border-radius: 12px;
+        border: 2px solid #ef4444;
+        background: #fff;
+        color: #991b1b;
+        font-weight: 900;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        flex-wrap: wrap;
+    }
+
+    .moreErr {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        flex-wrap: wrap;
+        padding: 8px 10px;
+        border-radius: 12px;
+        border: 2px solid #ef4444;
+        color: #991b1b;
+        font-weight: 900;
+        font-size: 12px;
+        background: #fff;
     }
 
     .empty {
@@ -399,6 +470,7 @@
         padding: 18px;
         background: #fff;
         box-sizing: border-box;
+        max-width: 720px;
     }
 
     .empty-title {
@@ -411,5 +483,16 @@
         opacity: 0.7;
         color: #222;
         font-size: 13px;
+    }
+
+    .miniErr {
+        margin-top: 12px;
+        padding: 10px 12px;
+        border-radius: 12px;
+        border: 2px solid #ef4444;
+        color: #991b1b;
+        font-weight: 900;
+        font-size: 12px;
+        background: #fff;
     }
 </style>

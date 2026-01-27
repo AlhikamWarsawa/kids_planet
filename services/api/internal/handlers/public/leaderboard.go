@@ -1,7 +1,6 @@
 package public
 
 import (
-	"context"
 	"strconv"
 	"strings"
 
@@ -34,10 +33,8 @@ func (h *LeaderboardHandler) Submit(c *fiber.Ctx) error {
 
 	guestID := strings.TrimSpace(c.Get("X-Guest-Id"))
 
-	ctx := context.Background()
-
 	resp, appErr := h.svc.SubmitScore(
-		ctx,
+		c.Context(),
 		tokenGameID,
 		guestID,
 		req,
@@ -80,15 +77,13 @@ func (h *LeaderboardHandler) GetTop(c *fiber.Ctx) error {
 	limitStr := strings.TrimSpace(c.Query("limit", ""))
 	if limitStr != "" {
 		v, err := strconv.Atoi(limitStr)
-		if err != nil {
+		if err != nil || v < 1 || v > 100 {
 			return utils.Fail(c, utils.ErrBadRequest("limit must be an integer between 1 and 100"))
 		}
 		limit = v
 	}
 
-	ctx := context.Background()
-
-	items, svcErr := h.svc.GetTop(ctx, gameID, period, scope, limit)
+	items, svcErr := h.svc.GetTop(c.Context(), gameID, period, scope, limit)
 	if svcErr != nil {
 		return failFromServiceErr(c, svcErr)
 	}
