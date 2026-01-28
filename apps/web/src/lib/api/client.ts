@@ -1,3 +1,5 @@
+import { browser } from "$app/environment";
+
 export type ApiErrorBody = {
     error?: {
         code?: string;
@@ -55,7 +57,10 @@ export function createApiClient(opts: ClientOptions = {}) {
         const headers = new Headers(init.headers ?? {});
         headers.set("Accept", "application/json");
 
-        const token = init.token ?? (getToken ? getToken() : null);
+        const shouldAttachToken = path.startsWith("/admin");
+        const token =
+            init.token ?? (shouldAttachToken && getToken ? getToken() : null);
+
         if (token) headers.set("Authorization", `Bearer ${token}`);
 
         let body = init.body as any;
@@ -121,4 +126,18 @@ export function createApiClient(opts: ClientOptions = {}) {
     };
 }
 
-export const api = createApiClient();
+const ADMIN_STORAGE_KEY = "kidsplanet_admin_token";
+
+function getAdminTokenFromStorage(): string | null {
+    if (!browser) return null;
+    try {
+        const t = localStorage.getItem(ADMIN_STORAGE_KEY);
+        return t?.trim() || null;
+    } catch {
+        return null;
+    }
+}
+
+export const api = createApiClient({
+    getToken: getAdminTokenFromStorage,
+});

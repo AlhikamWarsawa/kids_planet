@@ -1,0 +1,118 @@
+@BASE_URL= http://localhost/api
+@ADMIN_EMAIL= admin@kidsplanet.com
+@ADMIN_PASSWORD= 12345678
+@AGE_CATEGORY_ID= 1
+
+### Admin login
+POST {{BASE_URL}}/auth/admin/login
+Content-Type: application/json
+
+{
+  "email": "{{ADMIN_EMAIL}}",
+  "password": "{{ADMIN_PASSWORD}}"
+}
+
+> {%
+    client.test("login should return 200", function () {
+        client.assert(response.status === 200, "Expected 200");
+        client.assert(!!response.body.data, "Expected data");
+        client.assert(!!response.body.data.access_token, "Expected data.access_token");
+    });
+
+    client.global.set("ADMIN_TOKEN", response.body.data.access_token);
+%}
+
+### Create draft game
+POST {{BASE_URL}}/admin/games
+Authorization: Bearer {{ADMIN_TOKEN}}
+Content-Type: application/json
+
+{
+  "title": "CRUD Test Game {{$uuid}}",
+  "slug": "crud-test-game-{{$uuid}}",
+  "age_category_id": {{AGE_CATEGORY_ID}},
+  "free": true
+}
+
+> {%
+    client.test("create should return 200 and draft", function () {
+        client.assert(response.status === 200, "Expected 200");
+        client.assert(!!response.body.data.id, "Expected data.id");
+        client.assert(response.body.data.status === "draft", "Expected status=draft");
+    });
+
+    client.global.set("GAME_ID", response.body.data.id);
+    client.global.set("GAME_SLUG", response.body.data.slug);
+%}
+
+### List admin games (search by slug)
+GET {{BASE_URL}}/admin/games?q={{GAME_SLUG}}&page=1&limit=24
+Authorization: Bearer {{ADMIN_TOKEN}}
+
+> {%
+    client.test("list should return 200 and include created game", function () {
+        client.assert(response.status === 200, "Expected 200");
+        client.assert(Array.isArray(response.body.data.items), "Expected data.items array");
+
+        const items = response.body.data.items;
+        const found = items.some(it => it && it.id == client.global.get("GAME_ID"));
+        client.assert(found, "Expected created game in list");
+    });
+%}
+
+### Update title/slug
+PUT {{BASE_URL}}/admin/games/{{GAME_ID}}
+Authorization: Bearer {{ADMIN_TOKEN}}
+Content-Type: application/json
+
+{
+  "title": "CRUD Test Game Updated",
+  "slug": "crud-test-game-updated-{{$uuid}}"
+}
+
+> {%
+    client.test("update should return 200 and changed fields", function () {
+        client.assert(response.status === 200, "Expected 200");
+        client.assert(response.body.data.title === "CRUD Test Game Updated", "Expected updated title");
+        client.assert(!!response.body.data.slug, "Expected slug exists");
+    });
+
+    client.global.set("GAME_SLUG_UPDATED", response.body.data.slug);
+%}
+
+### Publish
+POST {{BASE_URL}}/admin/games/{{GAME_ID}}/publish
+Authorization: Bearer {{ADMIN_TOKEN}}
+
+> {%
+    client.test("publish should return 200 and active", function () {
+        client.assert(response.status === 200, "Expected 200");
+        client.assert(response.body.data.status === "active", "Expected status=active");
+    });
+%}
+
+### Unpublish
+POST {{BASE_URL}}/admin/games/{{GAME_ID}}/unpublish
+Authorization: Bearer {{ADMIN_TOKEN}}
+
+> {%
+    client.test("unpublish should return 200 and draft", function () {
+        client.assert(response.status === 200, "Expected 200");
+        client.assert(response.body.data.status === "draft", "Expected status=draft");
+    });
+%}
+
+### Final list check
+GET {{BASE_URL}}/admin/games?q={{GAME_SLUG_UPDATED}}&page=1&limit=24
+Authorization: Bearer {{ADMIN_TOKEN}}
+
+> {%
+    client.test("final list should include game and be draft", function () {
+        client.assert(response.status === 200, "Expected 200");
+        const items = response.body.data.items || [];
+        const id = client.global.get("GAME_ID");
+        const row = items.find(it => it && it.id == id);
+        client.assert(!!row, "Expected game row found");
+        client.assert(row.status === "draft", "Expected status=draft in list");
+    });
+%}

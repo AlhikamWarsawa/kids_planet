@@ -1,0 +1,45 @@
+@base = http://localhost/api
+@email = admin@kidsplanet.com
+@pass = 12345678
+
+### Login admin
+POST {{base}}/auth/admin/login
+Content-Type: application/json
+
+{
+  "email": "{{email}}",
+  "password": "{{pass}}"
+}
+
+> {%
+    client.global.set("ADMIN_TOKEN", response.body.data.access_token);
+%}
+
+### Create draft game
+POST {{base}}/admin/games
+Authorization: Bearer {{ADMIN_TOKEN}}
+Content-Type: application/json
+
+{
+  "title": "Prod Parity Game {{$uuid}}",
+  "slug": "prod-parity-game-{{$uuid}}",
+  "age_category_id": 1,
+  "free": true
+}
+
+> {%
+    client.global.set("GAME_ID", response.body.data.id);
+    client.global.set("GAME_SLUG", response.body.data.slug);
+%}
+
+### List games
+GET {{base}}/admin/games?q={{GAME_SLUG}}&page=1&limit=24
+Authorization: Bearer {{ADMIN_TOKEN}}
+
+### Publish game
+POST {{base}}/admin/games/{{GAME_ID}}/publish
+Authorization: Bearer {{ADMIN_TOKEN}}
+
+### Verify list again
+GET {{base}}/admin/games?q={{GAME_SLUG}}&page=1&limit=24
+Authorization: Bearer {{ADMIN_TOKEN}}

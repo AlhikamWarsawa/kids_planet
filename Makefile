@@ -1,7 +1,7 @@
 g:
 	git pull
 	git add .
-	git commit -m "Vertical Slice Finishing"
+	git commit -m "Admin Games CRUD"
 	git push
 
 dev:

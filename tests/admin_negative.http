@@ -1,0 +1,123 @@
+@base = http://localhost/api
+
+### Login admin
+POST {{base}}/auth/admin/login
+Content-Type: application/json
+
+{
+  "email": "admin@kidsplanet.com",
+  "password": "12345678"
+}
+
+> {% client.global.set("ADMIN_TOKEN", response.body.data.access_token); %}
+
+### Create a baseline game
+POST {{base}}/admin/games
+Authorization: Bearer {{ADMIN_TOKEN}}
+Content-Type: application/json
+
+{
+  "title": "NegTest Base {{$uuid}}",
+  "slug": "negtest-base-{{$uuid}}",
+  "age_category_id": 1,
+  "free": true
+}
+
+> {%
+    client.global.set("BASE_GAME_ID", response.body.data.id);
+    client.global.set("BASE_SLUG", response.body.data.slug);
+%}
+
+### slug duplicate on CREATE
+POST {{base}}/admin/games
+Authorization: Bearer {{ADMIN_TOKEN}}
+Content-Type: application/json
+
+{
+  "title": "NegTest Duplicate Slug {{$uuid}}",
+  "slug": "{{BASE_SLUG}}",
+  "age_category_id": 1,
+  "free": true
+}
+
+### Create another game
+POST {{base}}/admin/games
+Authorization: Bearer {{ADMIN_TOKEN}}
+Content-Type: application/json
+
+{
+  "title": "NegTest Second {{$uuid}}",
+  "slug": "negtest-second-{{$uuid}}",
+  "age_category_id": 1,
+  "free": true
+}
+
+> {% client.global.set("SECOND_GAME_ID", response.body.data.id); %}
+
+### slug duplicate on UPDATE
+PUT {{base}}/admin/games/{{SECOND_GAME_ID}}
+Authorization: Bearer {{ADMIN_TOKEN}}
+Content-Type: application/json
+
+{
+  "slug": "{{BASE_SLUG}}"
+}
+
+### invalid id = 0 on UPDATE
+PUT {{base}}/admin/games/0
+Authorization: Bearer {{ADMIN_TOKEN}}
+Content-Type: application/json
+
+{
+  "title": "Should fail"
+}
+
+### invalid id = 0 on PUBLISH
+POST {{base}}/admin/games/0/publish
+Authorization: Bearer {{ADMIN_TOKEN}}
+
+### invalid id = 0 on UNPUBLISH
+POST {{base}}/admin/games/0/unpublish
+Authorization: Bearer {{ADMIN_TOKEN}}
+
+### invalid id = abc
+PUT {{base}}/admin/games/abc
+Authorization: Bearer {{ADMIN_TOKEN}}
+Content-Type: application/json
+
+{
+  "title": "abc should not reach handler"
+}
+
+### age_category_id invalid (<1) on CREATE
+POST {{base}}/admin/games
+Authorization: Bearer {{ADMIN_TOKEN}}
+Content-Type: application/json
+
+{
+  "title": "NegTest Age 0 {{$uuid}}",
+  "slug": "negtest-age0-{{$uuid}}",
+  "age_category_id": 0,
+  "free": true
+}
+
+### age_category_id not found on CREATE
+POST {{base}}/admin/games
+Authorization: Bearer {{ADMIN_TOKEN}}
+Content-Type: application/json
+
+{
+  "title": "NegTest Age Missing {{$uuid}}",
+  "slug": "negtest-agemiss-{{$uuid}}",
+  "age_category_id": 999999,
+  "free": true
+}
+
+### age_category_id invalid on UPDATE
+PUT {{base}}/admin/games/{{BASE_GAME_ID}}
+Authorization: Bearer {{ADMIN_TOKEN}}
+Content-Type: application/json
+
+{
+  "age_category_id": 999999
+}

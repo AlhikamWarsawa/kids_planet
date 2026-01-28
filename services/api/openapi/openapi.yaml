@@ -533,6 +533,9 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorResponse" }
 
+  # =========================
+  # Admin Games (Day 15 MVP)
+  # =========================
   /admin/games:
     get:
       tags: [Admin Games]
@@ -542,100 +545,27 @@ paths:
       parameters:
         - in: query
           name: status
+          required: false
           schema:
             type: string
             enum: [draft, active, archived]
+          description: Optional status filter.
+        - in: query
+          name: q
           required: false
+          schema: { type: string, example: "color" }
+          description: Search by title or slug (ILIKE).
+        - in: query
+          name: page
+          required: false
+          schema: { type: integer, minimum: 1, default: 1 }
+        - in: query
+          name: limit
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 100, default: 24 }
       responses:
         "200":
-          description: Game list
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/SuccessResponse" }
-    post:
-      tags: [Admin Games]
-      summary: Create game metadata
-      security:
-        - bearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/AdminGameUpsertRequest" }
-      responses:
-        "200":
-          description: Created
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/SuccessResponse" }
-
-  /admin/games/{id}:
-    put:
-      tags: [Admin Games]
-      summary: Update game metadata
-      security:
-        - bearerAuth: []
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema: { type: integer, format: int64 }
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/AdminGameUpsertRequest" }
-      responses:
-        "200":
-          description: Updated
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/SuccessResponse" }
-    delete:
-      tags: [Admin Games]
-      summary: Delete game (optional hard delete; can also archive)
-      security:
-        - bearerAuth: []
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema: { type: integer, format: int64 }
-      responses:
-        "200":
-          description: Deleted
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/SuccessResponse" }
-
-  /admin/games/{id}/upload:
-    post:
-      tags: [Admin Games]
-      summary: Upload HTML5 game zip (store + extract)
-      description: |
-        Uploads a .zip, stores to MinIO, extracts safely to a prefix, and sets game_url.
-        Multipart form upload.
-      security:
-        - bearerAuth: []
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema: { type: integer, format: int64 }
-      requestBody:
-        required: true
-        content:
-          multipart/form-data:
-            schema:
-              type: object
-              required: [file]
-              properties:
-                file:
-                  type: string
-                  format: binary
-      responses:
-        "200":
-          description: Upload processed
+          description: Admin game list
           content:
             application/json:
               schema:
@@ -643,17 +573,199 @@ paths:
                   - $ref: "#/components/schemas/SuccessResponse"
                   - type: object
                     properties:
-                      data:
-                        type: object
-                        properties:
-                          game_url:
-                            type: string
-                            example: "https://example.com/games/123/current/index.html"
-                          version:
-                            type: string
-                            example: "20260117_040900"
+                      data: { $ref: "#/components/schemas/AdminGameListData" }
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "403":
+          description: Forbidden (not admin)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+    post:
+      tags: [Admin Games]
+      summary: Create game metadata (draft)
+      description: |
+        Creates a new game as draft. Publish via /admin/games/{id}/publish.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AdminGameCreateRequest" }
+      responses:
+        "200":
+          description: Created (draft)
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessResponse"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/AdminGameDTO" }
         "400":
-          description: Invalid zip / missing index.html / zip-slip detected
+          description: Invalid input / slug conflict / bad age_category_id
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "403":
+          description: Forbidden (not admin)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "409":
+          description: Slug already exists
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+  /admin/games/{id}:
+    put:
+      tags: [Admin Games]
+      summary: Update game metadata
+      description: |
+        Updates metadata fields only. Publishing is done via /publish.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer, format: int64, minimum: 1 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AdminGameUpdateRequest" }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessResponse"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/AdminGameDTO" }
+        "400":
+          description: Invalid input / slug conflict / bad age_category_id
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "403":
+          description: Forbidden (not admin)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "404":
+          description: Game not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "409":
+          description: Slug already exists
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+  /admin/games/{id}/publish:
+    post:
+      tags: [Admin Games]
+      summary: Publish game (set status active)
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer, format: int64, minimum: 1 }
+      responses:
+        "200":
+          description: Published
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessResponse"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/AdminGameDTO" }
+        "400":
+          description: Invalid id
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "403":
+          description: Forbidden (not admin)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "404":
+          description: Game not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+  /admin/games/{id}/unpublish:
+    post:
+      tags: [Admin Games]
+      summary: Unpublish game (set status draft)
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer, format: int64, minimum: 1 }
+      responses:
+        "200":
+          description: Unpublished
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessResponse"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/AdminGameDTO" }
+        "400":
+          description: Invalid id
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "403":
+          description: Forbidden (not admin)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "404":
+          description: Game not found
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorResponse" }
@@ -1026,6 +1138,73 @@ components:
               title: { type: string }
               plays: { type: integer }
 
+    # =========================
+    # Admin Games schemas (Day 15)
+    # =========================
+    AdminGameDTO:
+      type: object
+      required: [id, title, slug, status, age_category_id, free, created_at, updated_at]
+      properties:
+        id: { type: integer, format: int64 }
+        title: { type: string }
+        slug: { type: string }
+        status:
+          type: string
+          enum: [draft, active, archived]
+        thumbnail: { type: string, nullable: true }
+        game_url: { type: string, nullable: true }
+        age_category_id: { type: integer, format: int64 }
+        free: { type: boolean }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    AdminGameListData:
+      type: object
+      required: [items, page, limit, total]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/AdminGameDTO" }
+        page: { type: integer, example: 1 }
+        limit: { type: integer, example: 24 }
+        total: { type: integer, example: 1 }
+
+    AdminGameCreateRequest:
+      type: object
+      required: [title, slug, age_category_id]
+      properties:
+        title: { type: string, minLength: 1, maxLength: 150 }
+        slug:
+          type: string
+          minLength: 1
+          maxLength: 150
+          description: Lowercase + dash recommended (validated by server).
+        age_category_id: { type: integer, format: int64, minimum: 1 }
+        thumbnail: { type: string, nullable: true }
+        game_url:
+          type: string
+          nullable: true
+          description: Usually null at create; will be set after upload flow later.
+        free:
+          type: boolean
+          default: true
+
+    AdminGameUpdateRequest:
+      type: object
+      description: Partial update. Only provided fields are updated.
+      properties:
+        title: { type: string, minLength: 1, maxLength: 150 }
+        slug:
+          type: string
+          minLength: 1
+          maxLength: 150
+          description: Lowercase + dash recommended (validated by server).
+        age_category_id: { type: integer, format: int64, minimum: 1 }
+        thumbnail: { type: string, nullable: true }
+        game_url: { type: string, nullable: true }
+        free: { type: boolean }
+
+    # Kept for later (your original draft). Not used by Day 15 endpoints.
     AdminGameUpsertRequest:
       type: object
       required: [title, age_category_id, education_category_ids, free, status]

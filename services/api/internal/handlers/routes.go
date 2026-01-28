@@ -64,4 +64,11 @@ func Register(app *fiber.App, deps Deps) {
 
 	adminMe := admin.NewMeHandler(userRepo)
 	adminGroup.Get("/me", adminMe.Get)
+
+	adminGames := admin.NewGamesHandler(gameSvc)
+	adminGroup.Get("/games", adminGames.List)
+	adminGroup.Post("/games", adminGames.Create)
+	adminGroup.Put("/games/:id<int>", adminGames.Update)
+	adminGroup.Post("/games/:id<int>/publish", adminGames.Publish)
+	adminGroup.Post("/games/:id<int>/unpublish", adminGames.Unpublish)
 }
