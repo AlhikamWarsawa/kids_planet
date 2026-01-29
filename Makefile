@@ -1,7 +1,7 @@
 g:
 	git pull
 	git add .
-	git commit -m "Admin Games CRUD"
+	git commit -m "Admin Categories CRUD (Age + Education)"
 	git push
 
 dev:

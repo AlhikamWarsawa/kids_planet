@@ -53,6 +53,73 @@
         return Math.max(min, Math.min(max, Math.trunc(n)));
     }
 
+    type AgeCategoryDTO = {
+        id: number;
+        label: string;
+        min_age: number;
+        max_age: number;
+    };
+
+    let ageCatsLoading = true;
+    let ageCatsError: string | null = null;
+    let ageCats: AgeCategoryDTO[] = [];
+
+    function pickId(obj: any): number | null {
+        const v = obj?.id ?? obj?.ID ?? obj?.Id ?? obj?.iD;
+        const n = Number(v);
+        return Number.isFinite(n) && n >= 1 ? n : null;
+    }
+
+    function normalizeAgeCat(raw: any): AgeCategoryDTO | null {
+        const id = pickId(raw);
+        if (!id) return null;
+
+        const label = String(raw?.label ?? raw?.Label ?? "");
+        const min_age = clampInt(Number(raw?.min_age ?? raw?.MinAge ?? raw?.minAge ?? 0), 0, 999);
+        const max_age = clampInt(Number(raw?.max_age ?? raw?.MaxAge ?? raw?.maxAge ?? 0), 0, 999);
+
+        return { id, label, min_age, max_age };
+    }
+
+    function ageCatText(a: AgeCategoryDTO) {
+        const max = a.max_age ?? 0;
+        const min = a.min_age ?? 0;
+
+        if (a.label?.trim()) return `${a.label} (min ${min}, max ${max})`;
+        return `#${a.id} (min ${min}, max ${max})`;
+    }
+
+    async function loadAgeCats() {
+        ageCatsLoading = true;
+        ageCatsError = null;
+
+        const qs = new URLSearchParams();
+        qs.set("page", "1");
+        qs.set("limit", "100");
+
+        try {
+            const data = await adminApi.get<{ items: any[] }>(`/admin/age-categories?${qs.toString()}`);
+            const raw = Array.isArray(data?.items) ? data.items : [];
+            const normalized = raw.map(normalizeAgeCat).filter(Boolean) as AgeCategoryDTO[];
+
+            normalized.sort((a, b) => {
+                if (a.min_age !== b.min_age) return a.min_age - b.min_age;
+                return a.id - b.id;
+            });
+
+            ageCats = normalized;
+
+            if ((!Number.isFinite(formAgeCategoryId) || formAgeCategoryId < 1) && ageCats.length > 0) {
+                formAgeCategoryId = ageCats[0].id;
+            }
+        } catch (e) {
+            if (e instanceof ApiError) ageCatsError = `${e.code}: ${e.message}`;
+            else ageCatsError = String(e);
+        } finally {
+            ageCatsLoading = false;
+        }
+    }
+
     async function loadList(opts?: { keepPage?: boolean }) {
         loading = true;
         errorMsg = null;
@@ -115,7 +182,8 @@
         editId = null;
         formTitle = "";
         formSlug = "";
-        formAgeCategoryId = 1;
+        if (ageCats.length > 0) formAgeCategoryId = ageCats[0].id;
+        else formAgeCategoryId = 1;
         formFree = true;
     }
 
@@ -124,12 +192,12 @@
         editId = g.id;
         formTitle = g.title ?? "";
         formSlug = g.slug ?? "";
-        formAgeCategoryId = g.age_category_id ?? 1;
+        formAgeCategoryId = g.age_category_id ?? (ageCats[0]?.id ?? 1);
         formFree = Boolean(g.free);
         showToast("ok", "Edit mode");
     }
 
-    function validateForm(isCreate: boolean) {
+    function validateForm() {
         const t = formTitle.trim();
         const s = formSlug.trim();
         const age = clampInt(Number(formAgeCategoryId), 1, 1_000_000_000);
@@ -142,7 +210,7 @@
     }
 
     async function submitCreate() {
-        const err = validateForm(true);
+        const err = validateForm();
         if (err) {
             showToast("err", err);
             return;
@@ -175,7 +243,7 @@
             return;
         }
 
-        const err = validateForm(false);
+        const err = validateForm();
         if (err) {
             showToast("err", err);
             return;
@@ -233,7 +301,7 @@
     }
 
     onMount(() => {
-        void loadList();
+        void Promise.all([loadAgeCats(), loadList()]);
     });
 </script>
 
@@ -249,13 +317,13 @@
     {#if toast}
         <div
                 style="
-        padding: 10px 12px;
-        border-radius: 12px;
-        border: 1px solid {toast.kind === 'ok' ? '#bfe7c6' : '#ffd1d1'};
-        background: {toast.kind === 'ok' ? '#f1fff3' : '#fff3f3'};
-        font-size: 13px;
-        max-width: 420px;
-        "
+                padding: 10px 12px;
+                border-radius: 12px;
+                border: 1px solid {toast.kind === 'ok' ? '#bfe7c6' : '#ffd1d1'};
+                background: {toast.kind === 'ok' ? '#f1fff3' : '#fff3f3'};
+                font-size: 13px;
+                max-width: 420px;
+            "
         >
             <b style="text-transform:uppercase; font-size: 11px; letter-spacing:.4px;">
                 {toast.kind === "ok" ? "OK" : "ERROR"}
@@ -306,12 +374,12 @@
         </button>
         <button
                 on:click={() => {
-        status = "";
-        q = "";
-        limit = 24;
-        page = 1;
-        void loadList();
-      }}
+                status = "";
+                q = "";
+                limit = 24;
+                page = 1;
+                void loadList();
+            }}
                 disabled={loading}
                 style="padding: 9px 12px; border-radius: 10px; border: 1px solid #ddd; background: #fff;"
         >
@@ -369,13 +437,40 @@
         </div>
 
         <div style="grid-column: span 2; display:grid; gap: 6px;">
-            <div style="font-size: 12px; opacity: .7;">Age ID</div>
-            <input
-                    type="number"
-                    min="1"
+            <div style="font-size: 12px; opacity: .7; display:flex; align-items:center; justify-content:space-between; gap: 8px;">
+                <span>Age Category</span>
+                {#if ageCatsLoading}
+                    <span style="font-size: 11px; opacity:.6;">Loading…</span>
+                {:else if ageCatsError}
+                    <button
+                            on:click={() => loadAgeCats()}
+                            style="padding: 4px 8px; border-radius: 999px; border: 1px solid #ddd; background:#fff; font-size: 11px;"
+                            type="button"
+                    >
+                        Retry
+                    </button>
+                {/if}
+            </div>
+
+            <select
                     bind:value={formAgeCategoryId}
+                    disabled={ageCatsLoading || !!ageCatsError}
                     style="padding: 8px 10px; border-radius: 10px; border: 1px solid #ddd; background:#fff;"
-            />
+            >
+                {#if !ageCatsLoading && !ageCatsError && ageCats.length === 0}
+                    <option value={1}>No age categories (create first)</option>
+                {:else}
+                    {#each ageCats as a (a.id)}
+                        <option value={a.id}>{ageCatText(a)}</option>
+                    {/each}
+                {/if}
+            </select>
+
+            {#if ageCatsError}
+                <div style="margin-top: 6px; font-size: 11px; color:#b42318;">
+                    {ageCatsError}
+                </div>
+            {/if}
         </div>
 
         <label style="grid-column: span 12; display:flex; gap: 10px; align-items:center; margin-top: 2px;">
@@ -456,18 +551,18 @@
                             </td>
 
                             <td style="padding: 10px 12px;">
-                  <span
-                          style="
-                      display:inline-block;
-                      padding: 4px 8px;
-                      border-radius: 999px;
-                      font-size: 12px;
-                      border: 1px solid #ddd;
-                      background: {g.status === 'active' ? '#f1fff3' : g.status === 'draft' ? '#fffbe6' : '#f3f3f3'};
-                    "
-                  >
-                    {g.status}
-                  </span>
+                                    <span
+                                            style="
+                                            display:inline-block;
+                                            padding: 4px 8px;
+                                            border-radius: 999px;
+                                            font-size: 12px;
+                                            border: 1px solid #ddd;
+                                            background: {g.status === 'active' ? '#f1fff3' : g.status === 'draft' ? '#fffbe6' : '#f3f3f3'};
+                                        "
+                                    >
+                                        {g.status}
+                                    </span>
                             </td>
 
                             <td style="padding: 10px 12px;">

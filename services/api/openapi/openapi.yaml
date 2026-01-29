@@ -254,8 +254,6 @@ paths:
       tags: [Sessions]
       summary: Start play session (guest or logged-in)
       description: Returns short-lived play_token for submitting score/events.
-      security:
-        - bearerAuth: []
       requestBody:
         required: true
         content:
@@ -502,9 +500,6 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorResponse" }
 
-  # =========================
-  # Admin (JWT bearerAuth)
-  # =========================
   /admin/dashboard/overview:
     get:
       tags: [Admin Dashboard]
@@ -533,9 +528,6 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorResponse" }
 
-  # =========================
-  # Admin Games (Day 15 MVP)
-  # =========================
   /admin/games:
     get:
       tags: [Admin Games]
@@ -773,60 +765,376 @@ paths:
   /admin/education-categories:
     get:
       tags: [Admin Categories]
-      summary: List education categories
+      summary: List education categories (admin)
       security:
         - bearerAuth: []
+      parameters:
+        - in: query
+          name: q
+          required: false
+          schema: { type: string, example: "math" }
+          description: Search by name (ILIKE).
+        - in: query
+          name: page
+          required: false
+          schema: { type: integer, minimum: 1, default: 1 }
+        - in: query
+          name: limit
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 100, default: 24 }
       responses:
         "200":
-          description: Categories
+          description: Education categories
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/SuccessResponse" }
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessResponse"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/AdminEducationCategoryListData" }
+        "400":
+          description: Invalid query/pagination
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "403":
+          description: Forbidden (not admin)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
     post:
       tags: [Admin Categories]
-      summary: Create education category
+      summary: Create education category (admin)
       security:
         - bearerAuth: []
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: "#/components/schemas/EducationCategoryUpsertRequest" }
+            schema: { $ref: "#/components/schemas/AdminEducationCategoryCreateRequest" }
       responses:
         "200":
           description: Created
           content:
             application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessResponse"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/AdminEducationCategoryDTO" }
+        "400":
+          description: Invalid input / duplicate name
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "403":
+          description: Forbidden (not admin)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "409":
+          description: Duplicate (unique constraint)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+  /admin/education-categories/{id}:
+    put:
+      tags: [Admin Categories]
+      summary: Update education category (admin)
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer, format: int64, minimum: 1 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AdminEducationCategoryUpdateRequest" }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessResponse"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/AdminEducationCategoryDTO" }
+        "400":
+          description: Invalid input / duplicate name
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "403":
+          description: Forbidden (not admin)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "409":
+          description: Duplicate (unique constraint)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+    delete:
+      tags: [Admin Categories]
+      summary: Delete education category (admin)
+      description: |
+        Deletes a category. If referenced by game_education_categories, DB FK may reject delete.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer, format: int64, minimum: 1 }
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
               schema: { $ref: "#/components/schemas/SuccessResponse" }
+              examples:
+                ok:
+                  value:
+                    data:
+                      deleted: true
+                      id: 1
+        "400":
+          description: Invalid id / cannot delete due to FK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "403":
+          description: Forbidden (not admin)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
 
   /admin/age-categories:
     get:
       tags: [Admin Categories]
-      summary: List age categories
+      summary: List age categories (admin)
       security:
         - bearerAuth: []
+      parameters:
+        - in: query
+          name: q
+          required: false
+          schema: { type: string, example: "7+" }
+          description: Search by label (ILIKE).
+        - in: query
+          name: page
+          required: false
+          schema: { type: integer, minimum: 1, default: 1 }
+        - in: query
+          name: limit
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 100, default: 24 }
       responses:
         "200":
           description: Age categories
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/SuccessResponse" }
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessResponse"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/AdminAgeCategoryListData" }
+        "400":
+          description: Invalid query/pagination
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "403":
+          description: Forbidden (not admin)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
     post:
       tags: [Admin Categories]
-      summary: Create age category
+      summary: Create age category (admin)
       security:
         - bearerAuth: []
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: "#/components/schemas/AgeCategoryUpsertRequest" }
+            schema: { $ref: "#/components/schemas/AdminAgeCategoryCreateRequest" }
       responses:
         "200":
           description: Created
           content:
             application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessResponse"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/AdminAgeCategoryDTO" }
+        "400":
+          description: Invalid input / duplicate label / invalid range
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "403":
+          description: Forbidden (not admin)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "409":
+          description: Duplicate (unique constraint)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+  /admin/age-categories/{id}:
+    put:
+      tags: [Admin Categories]
+      summary: Update age category (admin)
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer, format: int64, minimum: 1 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AdminAgeCategoryUpdateRequest" }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessResponse"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/AdminAgeCategoryDTO" }
+        "400":
+          description: Invalid input / duplicate label / invalid range
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "403":
+          description: Forbidden (not admin)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "409":
+          description: Duplicate (unique constraint)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+    delete:
+      tags: [Admin Categories]
+      summary: Delete age category (admin)
+      description: |
+        Deletes an age category. If referenced by games.age_category_id, DB FK will reject delete.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer, format: int64, minimum: 1 }
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
               schema: { $ref: "#/components/schemas/SuccessResponse" }
+              examples:
+                ok:
+                  value:
+                    data:
+                      deleted: true
+                      id: 1
+        "400":
+          description: Invalid id / cannot delete due to FK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "403":
+          description: Forbidden (not admin)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
 
   /admin/achievements:
     get:
@@ -989,8 +1297,8 @@ components:
       properties:
         id: { type: integer, format: int64 }
         name: { type: string }
-        icon: { type: string }
-        color: { type: string }
+        icon: { type: string, nullable: true }
+        color: { type: string, nullable: true }
 
     AgeCategory:
       type: object
@@ -998,7 +1306,8 @@ components:
         id: { type: integer, format: int64 }
         label: { type: string, example: "7+" }
         min_age: { type: integer, example: 7 }
-        max_age: { type: integer, nullable: true, example: 10 }
+        max_age: { type: integer, example: 10 }
+      required: [id, label, min_age, max_age]
 
     GameCard:
       type: object
@@ -1138,9 +1447,6 @@ components:
               title: { type: string }
               plays: { type: integer }
 
-    # =========================
-    # Admin Games schemas (Day 15)
-    # =========================
     AdminGameDTO:
       type: object
       required: [id, title, slug, status, age_category_id, free, created_at, updated_at]
@@ -1226,21 +1532,91 @@ components:
           type: string
           enum: [draft, active, archived]
 
-    EducationCategoryUpsertRequest:
+    AdminEducationCategoryDTO:
+      type: object
+      required: [id, name, created_at]
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string }
+        icon: { type: string, nullable: true }
+        color:
+          type: string
+          nullable: true
+          description: Optional hex color like #RRGGBB
+          example: "#00AEEF"
+        created_at: { type: string, format: date-time }
+
+    AdminEducationCategoryListData:
+      type: object
+      required: [items, page, limit, total]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/AdminEducationCategoryDTO" }
+        page: { type: integer, example: 1 }
+        limit: { type: integer, example: 24 }
+        total: { type: integer, example: 5 }
+
+    AdminEducationCategoryCreateRequest:
       type: object
       required: [name]
       properties:
-        name: { type: string }
-        icon: { type: string }
-        color: { type: string }
+        name: { type: string, minLength: 1, maxLength: 100 }
+        icon: { type: string, nullable: true, maxLength: 100 }
+        color:
+          type: string
+          nullable: true
+          description: Optional hex color like #RRGGBB
+          pattern: "^#([0-9a-fA-F]{6})$"
 
-    AgeCategoryUpsertRequest:
+    AdminEducationCategoryUpdateRequest:
       type: object
-      required: [label, min_age]
+      description: Partial update. Only provided fields are updated.
       properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+        icon: { type: string, nullable: true, maxLength: 100 }
+        color:
+          type: string
+          nullable: true
+          description: Optional hex color like #RRGGBB
+          pattern: "^#([0-9a-fA-F]{6})$"
+
+    AdminAgeCategoryDTO:
+      type: object
+      required: [id, label, min_age, max_age, created_at]
+      properties:
+        id: { type: integer, format: int64 }
         label: { type: string, example: "7+" }
-        min_age: { type: integer, example: 7 }
-        max_age: { type: integer, nullable: true, example: 10 }
+        min_age: { type: integer, minimum: 0, example: 7 }
+        max_age: { type: integer, minimum: 0, example: 10 }
+        created_at: { type: string, format: date-time }
+
+    AdminAgeCategoryListData:
+      type: object
+      required: [items, page, limit, total]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/AdminAgeCategoryDTO" }
+        page: { type: integer, example: 1 }
+        limit: { type: integer, example: 24 }
+        total: { type: integer, example: 4 }
+
+    AdminAgeCategoryCreateRequest:
+      type: object
+      required: [label, min_age, max_age]
+      properties:
+        label: { type: string, minLength: 1, maxLength: 50, example: "7+" }
+        min_age: { type: integer, minimum: 0, example: 7 }
+        max_age: { type: integer, minimum: 0, example: 10 }
+
+    AdminAgeCategoryUpdateRequest:
+      type: object
+      description: Partial update. Only provided fields are updated.
+      properties:
+        label: { type: string, minLength: 1, maxLength: 50, example: "7+" }
+        min_age: { type: integer, minimum: 0, example: 7 }
+        max_age: { type: integer, minimum: 0, example: 10 }
 
     AdminAchievementUpsertRequest:
       type: object

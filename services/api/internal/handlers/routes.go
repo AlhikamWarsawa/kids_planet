@@ -30,9 +30,14 @@ func Register(app *fiber.App, deps Deps) {
 	userRepo := repos.NewUserRepo(deps.DB)
 	submissionRepo := repos.NewSubmissionRepo(deps.DB)
 
+	ageCategoryRepo := repos.NewAgeCategoryRepo(deps.DB)
+	educationCategoryRepo := repos.NewEducationCategoryRepo(deps.DB)
+
 	gameSvc := services.NewGameService(gameRepo)
 	sessionSvc := services.NewSessionService(deps.Cfg, gameRepo)
 	leaderboardSvc := services.NewLeaderboardService(deps.Valkey, submissionRepo)
+
+	categorySvc := services.NewCategoryService(ageCategoryRepo, educationCategoryRepo)
 
 	gamesHandler := public.NewGamesHandler(gameSvc)
 	api.Get("/games", gamesHandler.List)
@@ -43,7 +48,6 @@ func Register(app *fiber.App, deps Deps) {
 
 	leaderboardHandler := public.NewLeaderboardHandler(leaderboardSvc)
 	api.Get("/leaderboard/:game_id<int>", leaderboardHandler.GetTop)
-
 	api.Post(
 		"/leaderboard/submit",
 		middleware.PlayToken(deps.Cfg),
@@ -71,4 +75,16 @@ func Register(app *fiber.App, deps Deps) {
 	adminGroup.Put("/games/:id<int>", adminGames.Update)
 	adminGroup.Post("/games/:id<int>/publish", adminGames.Publish)
 	adminGroup.Post("/games/:id<int>/unpublish", adminGames.Unpublish)
+
+	adminCategories := admin.NewCategoriesHandler(categorySvc)
+
+	adminGroup.Get("/age-categories", adminCategories.ListAge)
+	adminGroup.Post("/age-categories", adminCategories.CreateAge)
+	adminGroup.Put("/age-categories/:id<int>", adminCategories.UpdateAge)
+	adminGroup.Delete("/age-categories/:id<int>", adminCategories.DeleteAge)
+
+	adminGroup.Get("/education-categories", adminCategories.ListEducation)
+	adminGroup.Post("/education-categories", adminCategories.CreateEducation)
+	adminGroup.Put("/education-categories/:id<int>", adminCategories.UpdateEducation)
+	adminGroup.Delete("/education-categories/:id<int>", adminCategories.DeleteEducation)
 }

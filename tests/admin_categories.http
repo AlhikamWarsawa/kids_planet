@@ -1,0 +1,5 @@
+@DEV_BASE = http://localhost:8080/api
+@PROD_BASE = http://localhost/api
+
+@ADMIN_EMAIL = admin@kidsplanet.com
+@ADMIN_PASSWORD = 12345678
