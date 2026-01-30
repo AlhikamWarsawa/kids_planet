@@ -676,6 +676,88 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorResponse" }
 
+  /admin/games/{id}/upload:
+    post:
+      tags: [ Admin Games ]
+      summary: Upload game ZIP package
+      description: |
+        Upload HTML5 game package as ZIP file.
+        The ZIP will be stored in MinIO and later served via game_url.
+        - Only .zip files are allowed
+        - Max size is limited by server configuration
+      security:
+        - bearerAuth: [ ]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+          description: Game ID to attach the uploaded ZIP to
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [ file ]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: ZIP file containing the HTML5 game
+      responses:
+        "200":
+          description: Upload successful
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessResponse"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminGameUploadResult"
+              examples:
+                ok:
+                  value:
+                    data:
+                      game_id: 7
+                      object_key: games/7/game.zip
+                      etag: "a1b2c3d4e5f6"
+                      filename: my_game.zip
+        "400":
+          description: |
+            Bad request:
+            - file missing
+            - invalid file type (not zip)
+            - file too large
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "401":
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "403":
+          description: Forbidden (not admin)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "404":
+          description: Game not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "413":
+          description: Payload too large
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
   /admin/games/{id}/publish:
     post:
       tags: [Admin Games]
@@ -1510,7 +1592,6 @@ components:
         game_url: { type: string, nullable: true }
         free: { type: boolean }
 
-    # Kept for later (your original draft). Not used by Day 15 endpoints.
     AdminGameUpsertRequest:
       type: object
       required: [title, age_category_id, education_category_ids, free, status]
@@ -1545,6 +1626,26 @@ components:
           description: Optional hex color like #RRGGBB
           example: "#00AEEF"
         created_at: { type: string, format: date-time }
+
+    AdminGameUploadResult:
+      type: object
+      required: [ game_id, object_key, etag, filename ]
+      properties:
+        game_id:
+          type: integer
+          format: int64
+          example: 7
+        object_key:
+          type: string
+          example: games/7/game.zip
+          description: Object key stored in MinIO
+        etag:
+          type: string
+          example: "a1b2c3d4e5f6"
+          description: ETag returned by MinIO after upload
+        filename:
+          type: string
+          example: my_game.zip
 
     AdminEducationCategoryListData:
       type: object

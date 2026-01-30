@@ -2,22 +2,37 @@ package services
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"errors"
+	"fmt"
+	"io"
+	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
+	"github.com/ZygmaCore/kids_planet/services/api/internal/clients"
 	"github.com/ZygmaCore/kids_planet/services/api/internal/models"
 	"github.com/ZygmaCore/kids_planet/services/api/internal/repos"
 	"github.com/ZygmaCore/kids_planet/services/api/internal/utils"
 )
 
 type GameService struct {
-	gameRepo *repos.GameRepo
+	gameRepo    *repos.GameRepo
+	minio       *clients.MinIO
+	minioBucket string
+	zipMaxBytes int64
 }
 
-func NewGameService(gameRepo *repos.GameRepo) *GameService {
-	return &GameService{gameRepo: gameRepo}
+func NewGameService(gameRepo *repos.GameRepo, minio *clients.MinIO, minioBucket string, zipMaxBytes int64) *GameService {
+	return &GameService{
+		gameRepo:    gameRepo,
+		minio:       minio,
+		minioBucket: strings.TrimSpace(minioBucket),
+		zipMaxBytes: zipMaxBytes,
+	}
 }
 
 type ListPublicGamesInput struct {
@@ -475,6 +490,92 @@ func (s *GameService) UnpublishAdminGame(ctx context.Context, id int64) (*models
 
 	dto := toAdminGameDTO(*g)
 	return &dto, nil
+}
+
+type UploadZipDTO struct {
+	ObjectKey string `json:"object_key"`
+	ETag      string `json:"etag"`
+	Size      int64  `json:"size"`
+}
+
+func (s *GameService) UploadAdminGameZip(ctx context.Context, gameID int64, filename string, file io.ReadSeeker, size int64, contentType string) (*UploadZipDTO, error) {
+	if gameID < 1 {
+		return nil, utils.ErrBadRequest("id must be an integer >= 1")
+	}
+	if s.minio == nil {
+		return nil, utils.ErrInternal()
+	}
+	if strings.TrimSpace(s.minioBucket) == "" {
+		return nil, utils.ErrInternal()
+	}
+	if size <= 0 {
+		return nil, utils.ErrBadRequest("file is required")
+	}
+	if s.zipMaxBytes > 0 && size > s.zipMaxBytes {
+		return nil, utils.ErrBadRequest(fmt.Sprintf("file too large (max %d bytes)", s.zipMaxBytes))
+	}
+
+	ext := strings.ToLower(filepath.Ext(strings.TrimSpace(filename)))
+	if ext != ".zip" {
+		return nil, utils.ErrBadRequest("file must be a .zip")
+	}
+
+	g, err := s.gameRepo.GetByID(ctx, gameID)
+	if err != nil {
+		if errors.Is(err, repos.ErrNotFound) {
+			return nil, utils.ErrNotFound("game not found")
+		}
+		return nil, utils.ErrInternal()
+	}
+	if g.Status == "archived" {
+		return nil, utils.ErrBadRequest("archived game cannot be uploaded")
+	}
+
+	head := make([]byte, 4)
+	n, err := io.ReadFull(file, head)
+	if err != nil || n < 2 {
+		return nil, utils.ErrBadRequest("invalid zip file")
+	}
+	_, _ = file.Seek(0, io.SeekStart)
+	if head[0] != 'P' || head[1] != 'K' {
+		return nil, utils.ErrBadRequest("invalid zip file")
+	}
+
+	ct := strings.TrimSpace(contentType)
+	if ct == "" {
+		ct = "application/zip"
+	}
+
+	now := time.Now().UTC()
+	ts := now.Format("20060102_150405")
+	rnd, err := randHex(8)
+	if err != nil {
+		return nil, utils.ErrInternal()
+	}
+
+	objectKey := fmt.Sprintf("games/%d/upload/%s_%s.zip", gameID, ts, rnd)
+
+	etag, err := s.minio.PutObject(ctx, s.minioBucket, objectKey, file, size, ct)
+	if err != nil {
+		return nil, utils.ErrInternal()
+	}
+
+	return &UploadZipDTO{
+		ObjectKey: objectKey,
+		ETag:      etag,
+		Size:      size,
+	}, nil
+}
+
+func randHex(nBytes int) (string, error) {
+	if nBytes <= 0 {
+		return "", errors.New("nBytes must be > 0")
+	}
+	b := make([]byte, nBytes)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
 }
 
 func toAdminGameDTO(g repos.Game) models.AdminGameDTO {

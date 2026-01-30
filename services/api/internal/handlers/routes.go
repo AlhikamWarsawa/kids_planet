@@ -18,6 +18,7 @@ type Deps struct {
 	Cfg    config.Config
 	DB     *sql.DB
 	Valkey *clients.Valkey
+	MinIO  *clients.MinIO
 }
 
 func Register(app *fiber.App, deps Deps) {
@@ -33,7 +34,13 @@ func Register(app *fiber.App, deps Deps) {
 	ageCategoryRepo := repos.NewAgeCategoryRepo(deps.DB)
 	educationCategoryRepo := repos.NewEducationCategoryRepo(deps.DB)
 
-	gameSvc := services.NewGameService(gameRepo)
+	gameSvc := services.NewGameService(
+		gameRepo,
+		deps.MinIO,
+		deps.Cfg.MinIO.Bucket,
+		deps.Cfg.Upload.ZipMaxBytes,
+	)
+
 	sessionSvc := services.NewSessionService(deps.Cfg, gameRepo)
 	leaderboardSvc := services.NewLeaderboardService(deps.Valkey, submissionRepo)
 
@@ -75,6 +82,7 @@ func Register(app *fiber.App, deps Deps) {
 	adminGroup.Put("/games/:id<int>", adminGames.Update)
 	adminGroup.Post("/games/:id<int>/publish", adminGames.Publish)
 	adminGroup.Post("/games/:id<int>/unpublish", adminGames.Unpublish)
+	adminGroup.Post("/games/:id<int>/upload", adminGames.Upload)
 
 	adminCategories := admin.NewCategoriesHandler(categorySvc)
 

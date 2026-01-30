@@ -150,3 +150,23 @@ export function adminUnpublishGame(id: number): Promise<AdminGameDTO> {
     }
     return api.post<AdminGameDTO>(`/admin/games/${id}/unpublish`);
 }
+
+export type AdminUploadZipResult = {
+    object_key: string;
+    etag: string;
+    size: number;
+};
+
+export function adminUploadGameZip(id: number, file: File): Promise<AdminUploadZipResult> {
+    if (!Number.isFinite(id) || id < 1) {
+        return Promise.reject(new Error('id must be a number >= 1'));
+    }
+    if (!(file instanceof File)) {
+        return Promise.reject(new Error('file is required'));
+    }
+
+    const fd = new FormData();
+    fd.append('file', file, file.name);
+
+    return api.post<AdminUploadZipResult>(`/admin/games/${id}/upload`, fd as any);
+}

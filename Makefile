@@ -1,7 +1,7 @@
 g:
 	git pull
 	git add .
-	git commit -m "Admin Categories CRUD (Age + Education)"
+	git commit -m "Upload ZIP with MinIO"
 	git push
 
 dev:

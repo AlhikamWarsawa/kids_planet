@@ -14,7 +14,20 @@ type Config struct {
 
 	Postgres PostgresConfig
 	Valkey   ValkeyConfig
+	MinIO    MinIOConfig
+	Upload   UploadConfig
 	JWT      JWTConfig
+}
+
+type MinIOConfig struct {
+	Endpoint  string
+	AccessKey string
+	SecretKey string
+	Bucket    string
+}
+
+type UploadConfig struct {
+	ZipMaxBytes int64
 }
 
 type PostgresConfig struct {
@@ -57,9 +70,18 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 
+	zipMaxBytesInt, err := parseIntEnv("ZIP_UPLOAD_MAX_BYTES", "52428800")
+	if err != nil {
+		return Config{}, err
+	}
+	if zipMaxBytesInt <= 0 {
+		return Config{}, fmt.Errorf("invalid ZIP_UPLOAD_MAX_BYTES=%d (must be > 0)", zipMaxBytesInt)
+	}
+
 	cfg := Config{
 		Env:  getEnv("ENV", "dev"),
 		Port: getEnv("PORT", "8080"),
+
 		Postgres: PostgresConfig{
 			Host:     os.Getenv("POSTGRES_HOST"),
 			Port:     os.Getenv("POSTGRES_PORT"),
@@ -68,11 +90,24 @@ func Load() (Config, error) {
 			Password: os.Getenv("POSTGRES_PASSWORD"),
 			SSLMode:  getEnv("POSTGRES_SSLMODE", "disable"),
 		},
+
 		Valkey: ValkeyConfig{
 			Addr:     os.Getenv("VALKEY_ADDR"),
 			Password: getEnv("VALKEY_PASSWORD", ""),
 			DB:       valkeyDB,
 		},
+
+		MinIO: MinIOConfig{
+			Endpoint:  os.Getenv("MINIO_ENDPOINT"),
+			AccessKey: os.Getenv("MINIO_ACCESS_KEY"),
+			SecretKey: os.Getenv("MINIO_SECRET_KEY"),
+			Bucket:    os.Getenv("MINIO_BUCKET"),
+		},
+
+		Upload: UploadConfig{
+			ZipMaxBytes: int64(zipMaxBytesInt),
+		},
+
 		JWT: JWTConfig{
 			Secret:    os.Getenv("JWT_SECRET"),
 			Issuer:    getEnv("JWT_ISSUER", "kids_planet"),
@@ -84,6 +119,12 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	if err := cfg.Valkey.Validate(); err != nil {
+		return Config{}, err
+	}
+	if err := cfg.MinIO.Validate(); err != nil {
+		return Config{}, err
+	}
+	if err := cfg.Upload.Validate(); err != nil {
 		return Config{}, err
 	}
 	if err := cfg.JWT.Validate(); err != nil {
@@ -126,6 +167,33 @@ func (c ValkeyConfig) Validate() error {
 	}
 	if len(missing) > 0 {
 		return fmt.Errorf("missing required env: %v", missing)
+	}
+	return nil
+}
+
+func (c MinIOConfig) Validate() error {
+	var missing []string
+	if strings.TrimSpace(c.Endpoint) == "" {
+		missing = append(missing, "MINIO_ENDPOINT")
+	}
+	if strings.TrimSpace(c.AccessKey) == "" {
+		missing = append(missing, "MINIO_ACCESS_KEY")
+	}
+	if strings.TrimSpace(c.SecretKey) == "" {
+		missing = append(missing, "MINIO_SECRET_KEY")
+	}
+	if strings.TrimSpace(c.Bucket) == "" {
+		missing = append(missing, "MINIO_BUCKET")
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("missing required env: %v", missing)
+	}
+	return nil
+}
+
+func (c UploadConfig) Validate() error {
+	if c.ZipMaxBytes <= 0 {
+		return fmt.Errorf("invalid ZIP_UPLOAD_MAX_BYTES: must be > 0")
 	}
 	return nil
 }

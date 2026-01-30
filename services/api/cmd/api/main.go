@@ -36,10 +36,23 @@ func main() {
 	defer func() { _ = vk.Close() }()
 	log.Println("valkey connected")
 
+	mo, err := clients.NewMinIO(ctx, cfg.MinIO)
+	if err != nil {
+		log.Fatalf("startup failed (minio): %v", err)
+	}
+	log.Println("minio connected")
+
+	bodyLimit := int(cfg.Upload.ZipMaxBytes)
+	if bodyLimit < 4*1024*1024 {
+		bodyLimit = 4 * 1024 * 1024
+	}
+	bodyLimit = bodyLimit + (1 * 1024 * 1024)
+
 	app := fiber.New(fiber.Config{
 		AppName:      "game-portal-api",
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 10 * time.Second,
+		ReadTimeout:  20 * time.Second,
+		WriteTimeout: 20 * time.Second,
+		BodyLimit:    bodyLimit,
 	})
 
 	app.Use(middleware.Recover())
@@ -49,6 +62,7 @@ func main() {
 		Cfg:    cfg,
 		DB:     db,
 		Valkey: vk,
+		MinIO:  mo,
 	})
 
 	if cfg.Env != "prod" {

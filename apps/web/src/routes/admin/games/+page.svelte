@@ -16,6 +16,11 @@
         },
     });
 
+    const ZIP_MAX_BYTES = 52428800;
+
+    type UploadResult = { object_key: string; etag: string; size: number };
+    type LastUploadInfo = UploadResult & { file_name: string; at_ms: number };
+
     let loading = true;
     let errorMsg: string | null = null;
 
@@ -28,6 +33,10 @@
     let q = "";
 
     let busyRowId: number | null = null;
+
+    let uploadFileById: Record<number, File | null> = {};
+    let uploadingById: Record<number, boolean> = {};
+    let lastUploadById: Record<number, LastUploadInfo | null> = {};
 
     let toast: { kind: "ok" | "err"; message: string } | null = null;
     let toastTimer: any = null;
@@ -48,10 +57,129 @@
         }
     }
 
+    function formatMs(ms: number) {
+        try {
+            if (!Number.isFinite(ms)) return String(ms);
+            const d = new Date(ms);
+            if (Number.isNaN(d.getTime())) return String(ms);
+            return d.toLocaleString();
+        } catch {
+            return String(ms);
+        }
+    }
+
+    function formatBytes(n: number) {
+        if (!Number.isFinite(n) || n < 0) return String(n);
+        const units = ["B", "KB", "MB", "GB"];
+        let x = n;
+        let i = 0;
+        while (x >= 1024 && i < units.length - 1) {
+            x = x / 1024;
+            i++;
+        }
+        const dp = i === 0 ? 0 : i === 1 ? 1 : 2;
+        return `${x.toFixed(dp)} ${units[i]}`;
+    }
+
     function clampInt(n: number, min: number, max: number) {
         if (!Number.isFinite(n)) return min;
         return Math.max(min, Math.min(max, Math.trunc(n)));
     }
+
+    // =======================
+    // ZIP Upload helpers
+    // =======================
+
+    function isZipName(name: string) {
+        return name.toLowerCase().endsWith(".zip");
+    }
+
+    function validateZipFile(f: File | null): string | null {
+        if (!f) return "file is required";
+        if (!isZipName(f.name || "")) return "only .zip files are allowed";
+        if (!Number.isFinite(f.size) || f.size <= 0) return "file is empty";
+        if (f.size > ZIP_MAX_BYTES) return `zip too large (max ${formatBytes(ZIP_MAX_BYTES)})`;
+        return null;
+    }
+
+    function setUploadFile(gameId: number, f: File | null) {
+        uploadFileById = { ...uploadFileById, [gameId]: f };
+    }
+
+    function onZipInputChange(gameId: number, e: Event) {
+        const input = e.currentTarget as HTMLInputElement | null;
+        const f = input?.files && input.files.length > 0 ? input.files[0] : null;
+
+        if (!f) {
+            setUploadFile(gameId, null);
+            return;
+        }
+
+        const v = validateZipFile(f);
+        if (v) {
+            setUploadFile(gameId, null);
+            if (input) input.value = "";
+            showToast("err", v);
+            return;
+        }
+
+        setUploadFile(gameId, f);
+    }
+
+    async function doUploadZip(g: AdminGameDTO) {
+        if (!g?.id) return;
+
+        if (g.status === "archived") {
+            showToast("err", "cannot upload to archived game");
+            return;
+        }
+
+        const gameId = g.id;
+        if (uploadingById[gameId]) return;
+
+        const f = uploadFileById[gameId] ?? null;
+        const err = validateZipFile(f);
+        if (err) {
+            showToast("err", err);
+            return;
+        }
+        if (!f) {
+            showToast("err", "file is required");
+            return;
+        }
+
+        uploadingById = { ...uploadingById, [gameId]: true };
+
+        try {
+            const fd = new FormData();
+            fd.append("file", f, f.name);
+
+            const res = await adminApi.post<UploadResult>(`/admin/games/${gameId}/upload`, fd);
+
+            lastUploadById = {
+                ...lastUploadById,
+                [gameId]: {
+                    object_key: res.object_key,
+                    etag: res.etag,
+                    size: res.size,
+                    file_name: f.name,
+                    at_ms: Date.now(),
+                },
+            };
+
+            setUploadFile(gameId, null);
+            showToast("ok", "ZIP uploaded");
+        } catch (e) {
+            if (e instanceof ApiError) showToast("err", `${e.code}: ${e.message}`);
+            else showToast("err", String(e));
+        } finally {
+            uploadingById = { ...uploadingById, [gameId]: false };
+        }
+    }
+
+    // =======================
+    // Age categories (for Create/Edit)
+    // =======================
 
     type AgeCategoryDTO = {
         id: number;
@@ -109,8 +237,8 @@
 
             ageCats = normalized;
 
-            if ((!Number.isFinite(formAgeCategoryId) || formAgeCategoryId < 1) && ageCats.length > 0) {
-                formAgeCategoryId = ageCats[0].id;
+            if ((!Number.isFinite(Number(formAgeCategoryId)) || Number(formAgeCategoryId) < 1) && ageCats.length > 0) {
+                formAgeCategoryId = ageCats[0].id as any;
             }
         } catch (e) {
             if (e instanceof ApiError) ageCatsError = `${e.code}: ${e.message}`;
@@ -120,51 +248,56 @@
         }
     }
 
-    async function loadList(opts?: { keepPage?: boolean }) {
-        loading = true;
-        errorMsg = null;
+    // =======================
+    // Normalizers (defensive)
+    // =======================
 
-        if (!opts?.keepPage) page = 1;
+    function normalizeText(v: any) {
+        return v == null ? "" : String(v);
+    }
 
-        const qs = new URLSearchParams();
-        if (status === "draft" || status === "active" || status === "archived") qs.set("status", status);
-        if (q.trim()) qs.set("q", q.trim());
-        qs.set("page", String(page));
-        qs.set("limit", String(limit));
+    function normalizeNullableText(v: any) {
+        if (v == null) return null;
+        const s = String(v);
+        return s.trim() ? s : null;
+    }
 
-        try {
-            const data = await adminApi.get<AdminGameListResponse>(`/admin/games?${qs.toString()}`);
-            items = data.items ?? [];
-            page = data.page ?? page;
-            limit = data.limit ?? limit;
-            total = data.total ?? 0;
-        } catch (e) {
-            if (e instanceof ApiError) errorMsg = `${e.code}: ${e.message}`;
-            else errorMsg = String(e);
-        } finally {
-            loading = false;
+    function normalizeBool(v: any) {
+        if (typeof v === "boolean") return v;
+        if (typeof v === "number") return v === 1;
+        if (typeof v === "string") {
+            const s = v.trim().toLowerCase();
+            return s === "true" || s === "1";
         }
+        return false;
     }
 
-    function totalPages() {
-        const denom = limit > 0 ? limit : 24;
-        return Math.max(1, Math.ceil((total || 0) / denom));
+    function normalizeStatus(v: any): AdminGameStatus {
+        const s = String(v ?? "").trim().toLowerCase();
+        if (s === "active" || s === "draft" || s === "archived") return s;
+        return "draft";
     }
 
-    async function goPrev() {
-        if (loading) return;
-        if (page <= 1) return;
-        page -= 1;
-        await loadList({ keepPage: true });
+    function normalizeGame(raw: any): AdminGameDTO | null {
+        const id = pickId(raw);
+        if (!id) return null;
+        return {
+            id,
+            title: normalizeText(raw?.title ?? raw?.Title),
+            slug: normalizeText(raw?.slug ?? raw?.Slug),
+            status: normalizeStatus(raw?.status ?? raw?.Status),
+            thumbnail: normalizeNullableText(raw?.thumbnail ?? raw?.Thumbnail),
+            game_url: normalizeNullableText(raw?.game_url ?? raw?.gameUrl ?? raw?.GameUrl ?? raw?.GameURL),
+            age_category_id: clampInt(Number(raw?.age_category_id ?? raw?.AgeCategoryID ?? raw?.ageCategoryId ?? 0), 0, 1_000_000_000),
+            free: normalizeBool(raw?.free ?? raw?.Free),
+            created_at: normalizeText(raw?.created_at ?? raw?.CreatedAt),
+            updated_at: normalizeText(raw?.updated_at ?? raw?.UpdatedAt),
+        };
     }
 
-    async function goNext() {
-        if (loading) return;
-        const tp = totalPages();
-        if (page >= tp) return;
-        page += 1;
-        await loadList({ keepPage: true });
-    }
+    // =======================
+    // Create/Edit form
+    // =======================
 
     type Mode = "create" | "edit";
     let mode: Mode = "create";
@@ -172,7 +305,7 @@
 
     let formTitle = "";
     let formSlug = "";
-    let formAgeCategoryId = 1;
+    let formAgeCategoryId: any = 1; // keep flexible (select returns string)
     let formFree = true;
 
     let submitting = false;
@@ -182,7 +315,7 @@
         editId = null;
         formTitle = "";
         formSlug = "";
-        if (ageCats.length > 0) formAgeCategoryId = ageCats[0].id;
+        if (ageCats.length > 0) formAgeCategoryId = ageCats[0].id as any;
         else formAgeCategoryId = 1;
         formFree = true;
     }
@@ -192,9 +325,10 @@
         editId = g.id;
         formTitle = g.title ?? "";
         formSlug = g.slug ?? "";
-        formAgeCategoryId = g.age_category_id ?? (ageCats[0]?.id ?? 1);
+        formAgeCategoryId = (g.age_category_id ?? (ageCats[0]?.id ?? 1)) as any;
         formFree = Boolean(g.free);
         showToast("ok", "Edit mode");
+        window.scrollTo({ top: 0, behavior: "smooth" });
     }
 
     function validateForm() {
@@ -205,7 +339,6 @@
         if (!t) return "title is required";
         if (!s) return "slug is required";
         if (age < 1) return "age_category_id must be >= 1";
-
         return null;
     }
 
@@ -270,6 +403,77 @@
         }
     }
 
+    // =======================
+    // List + paging
+    // =======================
+
+    async function loadList(opts?: { keepPage?: boolean }) {
+        loading = true;
+        errorMsg = null;
+
+        if (!opts?.keepPage) page = 1;
+
+        const qs = new URLSearchParams();
+        if (status === "draft" || status === "active" || status === "archived") qs.set("status", status);
+        if (q.trim()) qs.set("q", q.trim());
+        qs.set("page", String(page));
+        qs.set("limit", String(limit));
+
+        try {
+            const data = await adminApi.get<AdminGameListResponse>(`/admin/games?${qs.toString()}`);
+            const rawItems = Array.isArray((data as any)?.items) ? (data as any).items : [];
+            items = rawItems.map(normalizeGame).filter(Boolean) as AdminGameDTO[];
+
+            page = clampInt(Number((data as any)?.page ?? page), 1, 1_000_000_000);
+            limit = clampInt(Number((data as any)?.limit ?? limit), 1, 100);
+            total = clampInt(Number((data as any)?.total ?? 0), 0, 1_000_000_000);
+
+            // keep upload state only for current ids
+            const ids = new Set(items.map((x) => x.id));
+            const nextFiles: Record<number, File | null> = {};
+            const nextUploading: Record<number, boolean> = {};
+            const nextLast: Record<number, LastUploadInfo | null> = {};
+
+            for (const id of ids) {
+                nextFiles[id] = uploadFileById[id] ?? null;
+                nextUploading[id] = uploadingById[id] ?? false;
+                nextLast[id] = lastUploadById[id] ?? null;
+            }
+            uploadFileById = nextFiles;
+            uploadingById = nextUploading;
+            lastUploadById = nextLast;
+        } catch (e) {
+            if (e instanceof ApiError) errorMsg = `${e.code}: ${e.message}`;
+            else errorMsg = String(e);
+        } finally {
+            loading = false;
+        }
+    }
+
+    function totalPages() {
+        const perPage = limit > 0 ? limit : 24;
+        return Math.max(1, Math.ceil((total || 0) / perPage));
+    }
+
+    async function goPrev() {
+        if (loading) return;
+        if (page <= 1) return;
+        page -= 1;
+        await loadList({ keepPage: true });
+    }
+
+    async function goNext() {
+        if (loading) return;
+        const tp = totalPages();
+        if (page >= tp) return;
+        page += 1;
+        await loadList({ keepPage: true });
+    }
+
+    // =======================
+    // Publish / Unpublish
+    // =======================
+
     async function doPublish(g: AdminGameDTO) {
         if (busyRowId) return;
         busyRowId = g.id;
@@ -312,6 +516,7 @@
 <div style="display:flex; align-items:flex-start; justify-content:space-between; gap: 16px; flex-wrap: wrap;">
     <div>
         <h1 style="margin: 0 0 6px;">Games</h1>
+        <div style="font-size: 13px; opacity:.7;">Create, edit, publish, and upload ZIP</div>
     </div>
 
     {#if toast}
@@ -333,6 +538,7 @@
     {/if}
 </div>
 
+<!-- Filters -->
 <div style="margin-top: 16px; display:flex; gap: 10px; flex-wrap: wrap; align-items: end;">
     <div style="display:grid; gap: 6px;">
         <div style="font-size: 12px; opacity: .7;">Status</div>
@@ -388,11 +594,15 @@
     </div>
 </div>
 
+<!-- Create / Edit form -->
 <div style="margin-top: 18px; padding: 14px; border: 1px solid #eee; border-radius: 14px; background: #fff;">
     <div style="display:flex; align-items:center; justify-content:space-between; gap: 12px; flex-wrap: wrap;">
         <div>
             <div style="font-weight: 800;">
                 {mode === "create" ? "Create Game" : `Edit Game #${editId}`}
+            </div>
+            <div style="font-size: 12px; opacity:.7; margin-top: 2px;">
+                Title + Slug + Age Category + Free
             </div>
         </div>
 
@@ -409,7 +619,7 @@
 
             <button
                     on:click={mode === "create" ? submitCreate : submitUpdate}
-                    disabled={submitting}
+                    disabled={submitting || ageCatsLoading || !!ageCatsError || ageCats.length === 0}
                     style="padding: 8px 12px; border-radius: 10px; border: 1px solid #ddd; background: #111; color: #fff;"
             >
                 {submitting ? "Saving…" : mode === "create" ? "Create" : "Save"}
@@ -454,7 +664,7 @@
 
             <select
                     bind:value={formAgeCategoryId}
-                    disabled={ageCatsLoading || !!ageCatsError}
+                    disabled={ageCatsLoading || !!ageCatsError || ageCats.length === 0}
                     style="padding: 8px 10px; border-radius: 10px; border: 1px solid #ddd; background:#fff;"
             >
                 {#if !ageCatsLoading && !ageCatsError && ageCats.length === 0}
@@ -480,6 +690,7 @@
     </div>
 </div>
 
+<!-- List -->
 <div style="margin-top: 18px;">
     {#if loading}
         <div style="opacity:.7; padding: 12px 0;">Loading games…</div>
@@ -525,7 +736,7 @@
             </div>
         {:else}
             <div style="margin-top: 12px; overflow:auto; border: 1px solid #eee; border-radius: 14px; background:#fff;">
-                <table style="width: 100%; border-collapse: collapse; min-width: 860px;">
+                <table style="width: 100%; border-collapse: collapse; min-width: 1040px;">
                     <thead>
                     <tr style="text-align:left; background:#fafafa;">
                         <th style="padding: 10px 12px; font-size: 12px; opacity:.7;">Title</th>
@@ -536,6 +747,7 @@
                         <th style="padding: 10px 12px; font-size: 12px; opacity:.7;">Actions</th>
                     </tr>
                     </thead>
+
                     <tbody>
                     {#each items as g (g.id)}
                         <tr style="border-top: 1px solid #eee;">
@@ -565,40 +777,93 @@
                                     </span>
                             </td>
 
-                            <td style="padding: 10px 12px;">
-                                {g.age_category_id}
-                            </td>
+                            <td style="padding: 10px 12px;">{g.age_category_id}</td>
 
                             <td style="padding: 10px 12px; font-size: 13px; opacity:.8;">
                                 {formatDate(g.updated_at)}
                             </td>
 
                             <td style="padding: 10px 12px;">
-                                <div style="display:flex; gap: 8px; flex-wrap: wrap;">
-                                    <button
-                                            on:click={() => startEdit(g)}
-                                            style="padding: 7px 10px; border-radius: 10px; border: 1px solid #ddd; background:#fff;"
-                                    >
-                                        Edit
-                                    </button>
-
-                                    {#if g.status === "active"}
+                                <div style="display:grid; gap: 10px;">
+                                    <div style="display:flex; gap: 8px; flex-wrap: wrap;">
                                         <button
-                                                on:click={() => doUnpublish(g)}
-                                                disabled={busyRowId === g.id}
+                                                on:click={() => startEdit(g)}
                                                 style="padding: 7px 10px; border-radius: 10px; border: 1px solid #ddd; background:#fff;"
                                         >
-                                            {busyRowId === g.id ? "Working…" : "Unpublish"}
+                                            Edit
                                         </button>
-                                    {:else}
-                                        <button
-                                                on:click={() => doPublish(g)}
-                                                disabled={busyRowId === g.id}
-                                                style="padding: 7px 10px; border-radius: 10px; border: 1px solid #ddd; background:#111; color:#fff;"
-                                        >
-                                            {busyRowId === g.id ? "Working…" : "Publish"}
-                                        </button>
-                                    {/if}
+
+                                        {#if g.status === "active"}
+                                            <button
+                                                    on:click={() => doUnpublish(g)}
+                                                    disabled={busyRowId === g.id}
+                                                    style="padding: 7px 10px; border-radius: 10px; border: 1px solid #ddd; background:#fff;"
+                                            >
+                                                {busyRowId === g.id ? "Working…" : "Unpublish"}
+                                            </button>
+                                        {:else}
+                                            <button
+                                                    on:click={() => doPublish(g)}
+                                                    disabled={busyRowId === g.id}
+                                                    style="padding: 7px 10px; border-radius: 10px; border: 1px solid #ddd; background:#111; color:#fff;"
+                                            >
+                                                {busyRowId === g.id ? "Working…" : "Publish"}
+                                            </button>
+                                        {/if}
+                                    </div>
+
+                                    <div style="display:grid; gap: 6px;">
+                                        <div style="font-size: 12px; opacity:.7;">
+                                            Upload ZIP (max {formatBytes(ZIP_MAX_BYTES)})
+                                        </div>
+
+                                        <div style="display:flex; gap: 8px; align-items:center; flex-wrap: wrap;">
+                                            <input
+                                                    type="file"
+                                                    accept=".zip"
+                                                    disabled={(uploadingById[g.id] ?? false) || g.status === "archived"}
+                                                    on:change={(e) => onZipInputChange(g.id, e)}
+                                                    style="max-width: 260px;"
+                                            />
+
+                                            <button
+                                                    on:click={() => doUploadZip(g)}
+                                                    disabled={(uploadingById[g.id] ?? false) || !(uploadFileById[g.id] ?? null) || g.status === "archived"}
+                                                    style="padding: 7px 10px; border-radius: 10px; border: 1px solid #ddd; background:#111; color:#fff;"
+                                            >
+                                                {(uploadingById[g.id] ?? false) ? "Uploading…" : "Upload ZIP"}
+                                            </button>
+
+                                            {#if uploadFileById[g.id]}
+                                                    <span style="font-size: 12px; opacity:.75;">
+                                                        {(uploadFileById[g.id] as File).name} • {formatBytes((uploadFileById[g.id] as File).size)}
+                                                    </span>
+                                            {/if}
+                                        </div>
+
+                                        {#if lastUploadById[g.id]}
+                                            <div style="font-size: 12px; opacity:.8; line-height: 1.35;">
+                                                <div>
+                                                    <b>Last</b>:
+                                                    {(lastUploadById[g.id] as LastUploadInfo).file_name}
+                                                    • {formatBytes((lastUploadById[g.id] as LastUploadInfo).size)}
+                                                    • {formatMs((lastUploadById[g.id] as LastUploadInfo).at_ms)}
+                                                </div>
+                                                <div style="font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">
+                                                    key: {(lastUploadById[g.id] as LastUploadInfo).object_key}
+                                                </div>
+                                                <div style="font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">
+                                                    etag: {(lastUploadById[g.id] as LastUploadInfo).etag}
+                                                </div>
+                                            </div>
+                                        {/if}
+
+                                        {#if g.status === "archived"}
+                                            <div style="font-size: 12px; color:#b42318;">
+                                                Upload disabled for archived games.
+                                            </div>
+                                        {/if}
+                                    </div>
                                 </div>
                             </td>
                         </tr>

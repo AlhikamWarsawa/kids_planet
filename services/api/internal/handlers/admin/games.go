@@ -2,6 +2,7 @@ package admin
 
 import (
 	"context"
+	"io"
 	"strconv"
 	"strings"
 
@@ -133,5 +134,49 @@ func (h *GamesHandler) Unpublish(c *fiber.Ctx) error {
 		}
 		return utils.Fail(c, utils.ErrInternal())
 	}
+	return utils.Success(c, out)
+}
+
+func (h *GamesHandler) Upload(c *fiber.Ctx) error {
+	idStr := strings.TrimSpace(c.Params("id"))
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		return utils.Fail(c, utils.ErrBadRequest("id must be an integer"))
+	}
+	if id < 1 {
+		return utils.Fail(c, utils.ErrBadRequest("id must be an integer >= 1"))
+	}
+
+	fh, err := c.FormFile("file")
+	if err != nil || fh == nil {
+		return utils.Fail(c, utils.ErrBadRequest("file is required"))
+	}
+
+	f, err := fh.Open()
+	if err != nil {
+		return utils.Fail(c, utils.ErrInternal())
+	}
+	defer func() { _ = f.Close() }()
+
+	rs, ok := f.(io.ReadSeeker)
+	if !ok {
+		return utils.Fail(c, utils.ErrInternal())
+	}
+
+	out, upErr := h.gameSvc.UploadAdminGameZip(
+		context.Background(),
+		id,
+		fh.Filename,
+		rs,
+		fh.Size,
+		fh.Header.Get("Content-Type"),
+	)
+	if upErr != nil {
+		if appErr, ok := upErr.(utils.AppError); ok {
+			return utils.Fail(c, appErr)
+		}
+		return utils.Fail(c, utils.ErrInternal())
+	}
+
 	return utils.Success(c, out)
 }
