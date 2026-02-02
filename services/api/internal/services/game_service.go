@@ -8,6 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
+	"net/http"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -546,6 +549,60 @@ func (s *GameService) UploadAdminGameZip(ctx context.Context, gameID int64, file
 		ct = "application/zip"
 	}
 
+	workDir, err := os.MkdirTemp("", "kids-planet-zip-")
+	if err != nil {
+		return nil, utils.ErrInternal()
+	}
+	defer func() { _ = os.RemoveAll(workDir) }()
+
+	zipPath := filepath.Join(workDir, "upload.zip")
+	tmpFile, err := os.Create(zipPath)
+	if err != nil {
+		return nil, utils.ErrInternal()
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		_ = tmpFile.Close()
+		return nil, utils.ErrInternal()
+	}
+	if _, err := io.CopyN(tmpFile, file, size); err != nil {
+		_ = tmpFile.Close()
+		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+			return nil, utils.ErrBadRequest("invalid zip file")
+		}
+		return nil, utils.ErrInternal()
+	}
+	if err := tmpFile.Close(); err != nil {
+		return nil, utils.ErrInternal()
+	}
+
+	zipFile, err := os.Open(zipPath)
+	if err != nil {
+		return nil, utils.ErrInternal()
+	}
+	defer func() { _ = zipFile.Close() }()
+
+	info, err := zipFile.Stat()
+	if err != nil {
+		return nil, utils.ErrInternal()
+	}
+
+	extractDir := filepath.Join(workDir, "extracted")
+	extracted, err := utils.SafeUnzip(zipFile, info.Size(), extractDir)
+	if err != nil {
+		var zipErr utils.ZipInputError
+		if errors.As(err, &zipErr) {
+			return nil, utils.ErrBadRequest(zipErr.Error())
+		}
+		return nil, utils.ErrInternal()
+	}
+	if !hasRootIndex(extracted) {
+		return nil, utils.ErrBadRequest("index.html must exist at zip root")
+	}
+
+	if err := s.uploadExtractedGameFiles(ctx, gameID, extractDir, extracted); err != nil {
+		return nil, utils.ErrInternal()
+	}
+
 	now := time.Now().UTC()
 	ts := now.Format("20060102_150405")
 	rnd, err := randHex(8)
@@ -555,7 +612,10 @@ func (s *GameService) UploadAdminGameZip(ctx context.Context, gameID int64, file
 
 	objectKey := fmt.Sprintf("games/%d/upload/%s_%s.zip", gameID, ts, rnd)
 
-	etag, err := s.minio.PutObject(ctx, s.minioBucket, objectKey, file, size, ct)
+	if _, err := zipFile.Seek(0, io.SeekStart); err != nil {
+		return nil, utils.ErrInternal()
+	}
+	etag, err := s.minio.PutObject(ctx, s.minioBucket, objectKey, zipFile, info.Size(), ct)
 	if err != nil {
 		return nil, utils.ErrInternal()
 	}
@@ -563,8 +623,60 @@ func (s *GameService) UploadAdminGameZip(ctx context.Context, gameID int64, file
 	return &UploadZipDTO{
 		ObjectKey: objectKey,
 		ETag:      etag,
-		Size:      size,
+		Size:      info.Size(),
 	}, nil
+}
+
+func hasRootIndex(paths []string) bool {
+	for _, p := range paths {
+		if filepath.ToSlash(p) == "index.html" {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *GameService) uploadExtractedGameFiles(ctx context.Context, gameID int64, root string, files []string) error {
+	for _, rel := range files {
+		rel = filepath.ToSlash(rel)
+		if rel == "" {
+			continue
+		}
+
+		fullPath := filepath.Join(root, filepath.FromSlash(rel))
+		info, err := os.Stat(fullPath)
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			continue
+		}
+
+		f, err := os.Open(fullPath)
+		if err != nil {
+			return err
+		}
+
+		contentType := mime.TypeByExtension(filepath.Ext(rel))
+		if contentType == "" {
+			head := make([]byte, 512)
+			n, _ := f.Read(head)
+			contentType = http.DetectContentType(head[:n])
+			if _, err := f.Seek(0, io.SeekStart); err != nil {
+				_ = f.Close()
+				return err
+			}
+		}
+
+		objectKey := fmt.Sprintf("games/%d/current/%s", gameID, rel)
+		if _, err := s.minio.PutObject(ctx, s.minioBucket, objectKey, f, info.Size(), contentType); err != nil {
+			_ = f.Close()
+			return err
+		}
+		_ = f.Close()
+	}
+
+	return nil
 }
 
 func randHex(nBytes int) (string, error) {

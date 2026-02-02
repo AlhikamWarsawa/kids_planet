@@ -1,7 +1,7 @@
 g:
 	git pull
 	git add .
-	git commit -m "Upload ZIP with MinIO"
+	git commit -m "Safe Extract Engine"
 	git push
 
 dev:

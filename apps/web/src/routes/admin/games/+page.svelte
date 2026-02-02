@@ -86,10 +86,6 @@
         return Math.max(min, Math.min(max, Math.trunc(n)));
     }
 
-    // =======================
-    // ZIP Upload helpers
-    // =======================
-
     function isZipName(name: string) {
         return name.toLowerCase().endsWith(".zip");
     }
@@ -177,10 +173,6 @@
         }
     }
 
-    // =======================
-    // Age categories (for Create/Edit)
-    // =======================
-
     type AgeCategoryDTO = {
         id: number;
         label: string;
@@ -248,10 +240,6 @@
         }
     }
 
-    // =======================
-    // Normalizers (defensive)
-    // =======================
-
     function normalizeText(v: any) {
         return v == null ? "" : String(v);
     }
@@ -295,17 +283,13 @@
         };
     }
 
-    // =======================
-    // Create/Edit form
-    // =======================
-
     type Mode = "create" | "edit";
     let mode: Mode = "create";
     let editId: number | null = null;
 
     let formTitle = "";
     let formSlug = "";
-    let formAgeCategoryId: any = 1; // keep flexible (select returns string)
+    let formAgeCategoryId: any = 1;
     let formFree = true;
 
     let submitting = false;
@@ -403,10 +387,6 @@
         }
     }
 
-    // =======================
-    // List + paging
-    // =======================
-
     async function loadList(opts?: { keepPage?: boolean }) {
         loading = true;
         errorMsg = null;
@@ -428,7 +408,6 @@
             limit = clampInt(Number((data as any)?.limit ?? limit), 1, 100);
             total = clampInt(Number((data as any)?.total ?? 0), 0, 1_000_000_000);
 
-            // keep upload state only for current ids
             const ids = new Set(items.map((x) => x.id));
             const nextFiles: Record<number, File | null> = {};
             const nextUploading: Record<number, boolean> = {};
@@ -469,10 +448,6 @@
         page += 1;
         await loadList({ keepPage: true });
     }
-
-    // =======================
-    // Publish / Unpublish
-    // =======================
 
     async function doPublish(g: AdminGameDTO) {
         if (busyRowId) return;

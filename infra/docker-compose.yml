@@ -38,30 +38,23 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY}
     volumes:
       - minio_data:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
     restart: unless-stopped
-    networks: [planet_net]
-
-  minio_probe:
-    image: curlimages/curl:8.5.0
-    container_name: planet_minio_probe_infra
-    depends_on:
-      - minio
-    command: ["sh", "-c", "sleep infinity"]
+    networks: [ planet_net ]
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://minio:9000/minio/health/live >/dev/null || exit 1"]
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9000/minio/health/live || exit 1"]
       interval: 5s
       timeout: 3s
-      retries: 30
-      start_period: 10s
-    restart: unless-stopped
-    networks: [planet_net]
+      retries: 10
+      start_period: 5s
 
   minio_init:
     image: minio/mc:latest
     container_name: planet_minio_init_infra
     depends_on:
-      minio_probe:
-        condition: service_healthy
+      - minio
     environment:
       MINIO_ENDPOINT: minio:9000
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
@@ -69,10 +62,26 @@ services:
       MINIO_BUCKET: ${MINIO_BUCKET:-games}
     volumes:
       - ./scripts:/scripts:ro
-    entrypoint: [ "/bin/sh", "/scripts/init_minio.sh" ]
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        echo "[minio-init] waiting for minio..."
+        i=0
+        until curl -fsS http://minio:9000/minio/health/live >/dev/null 2>&1; do
+          i=$((i+1))
+          if [ "$i" -ge 120 ]; then
+            echo "[minio-init] timeout waiting for minio"
+            exit 1
+          fi
+          sleep 1
+        done
+        echo "[minio-init] MinIO reachable, running init script"
+        /scripts/init_minio.sh
+        echo "[minio-init] init completed (exiting)"
+        exit 0
     restart: "no"
-    networks: [ planet_net ]
-
+    networks: [planet_net]
 
   api:
     build:
@@ -93,7 +102,7 @@ services:
       MINIO_ENDPOINT: minio:9000
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
-      MINIO_BUCKET: ${MINIO_BUCKET}
+      MINIO_BUCKET: ${MINIO_BUCKET:-games}
 
       JWT_SECRET: ${JWT_SECRET}
       JWT_ISSUER: ${JWT_ISSUER}
@@ -101,14 +110,10 @@ services:
     expose:
       - "8080"
     depends_on:
-      postgres:
-        condition: service_healthy
-      valkey:
-        condition: service_healthy
-      minio_probe:
-        condition: service_healthy
-      minio_init:
-        condition: service_completed_successfully
+      - postgres
+      - valkey
+      - minio
+      - minio_init
     healthcheck:
       test: [ "CMD-SHELL", "curl -fsS http://localhost:8080/api/health >/dev/null || exit 1" ]
       interval: 5s
@@ -139,10 +144,8 @@ services:
       - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - web_dist:/usr/share/nginx/html:ro
     depends_on:
-      api:
-        condition: service_healthy
-      web:
-        condition: service_completed_successfully
+      - api
+      - web
     restart: unless-stopped
     networks: [planet_net]
 
