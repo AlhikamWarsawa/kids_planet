@@ -145,6 +145,7 @@ services:
       - web_dist:/usr/share/nginx/html:ro
     depends_on:
       - api
+      - minio
       - web
     restart: unless-stopped
     networks: [planet_net]

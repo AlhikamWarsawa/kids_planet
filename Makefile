@@ -1,7 +1,7 @@
 g:
 	git pull
 	git add .
-	git commit -m "Safe Extract Engine"
+	git commit -m "Nginx Proxy to MinIO"
 	git push
 
 dev:

@@ -11,6 +11,7 @@ import (
 	"mime"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -610,7 +611,8 @@ func (s *GameService) UploadAdminGameZip(ctx context.Context, gameID int64, file
 		return nil, utils.ErrInternal()
 	}
 
-	objectKey := fmt.Sprintf("games/%d/upload/%s_%s.zip", gameID, ts, rnd)
+	uploadPrefix := fmt.Sprintf("%d/upload", gameID)
+	objectKey := path.Join(uploadPrefix, fmt.Sprintf("%s_%s.zip", ts, rnd))
 
 	if _, err := zipFile.Seek(0, io.SeekStart); err != nil {
 		return nil, utils.ErrInternal()
@@ -637,6 +639,8 @@ func hasRootIndex(paths []string) bool {
 }
 
 func (s *GameService) uploadExtractedGameFiles(ctx context.Context, gameID int64, root string, files []string) error {
+	currentPrefix := fmt.Sprintf("%d/current", gameID)
+
 	for _, rel := range files {
 		rel = filepath.ToSlash(rel)
 		if rel == "" {
@@ -668,7 +672,7 @@ func (s *GameService) uploadExtractedGameFiles(ctx context.Context, gameID int64
 			}
 		}
 
-		objectKey := fmt.Sprintf("games/%d/current/%s", gameID, rel)
+		objectKey := path.Join(currentPrefix, rel)
 		if _, err := s.minio.PutObject(ctx, s.minioBucket, objectKey, f, info.Size(), contentType); err != nil {
 			_ = f.Close()
 			return err
