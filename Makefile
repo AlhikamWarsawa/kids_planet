@@ -1,7 +1,7 @@
 g:
 	git pull
 	git add .
-	git commit -m "Nginx Proxy to MinIO"
+	git commit -m "End to End Upload Games"
 	git push
 
 dev:

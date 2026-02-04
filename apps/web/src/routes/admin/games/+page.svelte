@@ -18,7 +18,7 @@
 
     const ZIP_MAX_BYTES = 52428800;
 
-    type UploadResult = { object_key: string; etag: string; size: number };
+    type UploadResult = { object_key: string; etag: string; size: number; game_url: string };
     type LastUploadInfo = UploadResult & { file_name: string; at_ms: number };
 
     let loading = true;
@@ -158,13 +158,14 @@
                     object_key: res.object_key,
                     etag: res.etag,
                     size: res.size,
+                    game_url: res.game_url,
                     file_name: f.name,
                     at_ms: Date.now(),
                 },
             };
 
             setUploadFile(gameId, null);
-            showToast("ok", "ZIP uploaded");
+            showToast("ok", "ZIP uploaded. Game ready.");
         } catch (e) {
             if (e instanceof ApiError) showToast("err", `${e.code}: ${e.message}`);
             else showToast("err", String(e));
@@ -824,6 +825,19 @@
                                                     • {formatBytes((lastUploadById[g.id] as LastUploadInfo).size)}
                                                     • {formatMs((lastUploadById[g.id] as LastUploadInfo).at_ms)}
                                                 </div>
+                                                {#if (lastUploadById[g.id] as LastUploadInfo).game_url}
+                                                    <div>
+                                                        play:
+                                                        <a
+                                                                href={(lastUploadById[g.id] as LastUploadInfo).game_url}
+                                                                target="_blank"
+                                                                rel="noreferrer"
+                                                                style="font-family: ui-monospace, SFMono-Regular, Menlo, monospace;"
+                                                        >
+                                                            {(lastUploadById[g.id] as LastUploadInfo).game_url}
+                                                        </a>
+                                                    </div>
+                                                {/if}
                                                 <div style="font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">
                                                     key: {(lastUploadById[g.id] as LastUploadInfo).object_key}
                                                 </div>

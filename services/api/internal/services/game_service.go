@@ -500,6 +500,7 @@ type UploadZipDTO struct {
 	ObjectKey string `json:"object_key"`
 	ETag      string `json:"etag"`
 	Size      int64  `json:"size"`
+	GameURL   string `json:"game_url"`
 }
 
 func (s *GameService) UploadAdminGameZip(ctx context.Context, gameID int64, filename string, file io.ReadSeeker, size int64, contentType string) (*UploadZipDTO, error) {
@@ -622,10 +623,19 @@ func (s *GameService) UploadAdminGameZip(ctx context.Context, gameID int64, file
 		return nil, utils.ErrInternal()
 	}
 
+	playableURL := fmt.Sprintf("/games/%d/current/index.html", gameID)
+	if _, err := s.gameRepo.SetGameURL(ctx, gameID, playableURL); err != nil {
+		if errors.Is(err, repos.ErrNotFound) {
+			return nil, utils.ErrNotFound("game not found")
+		}
+		return nil, utils.ErrInternal()
+	}
+
 	return &UploadZipDTO{
 		ObjectKey: objectKey,
 		ETag:      etag,
 		Size:      info.Size(),
+		GameURL:   playableURL,
 	}, nil
 }
 

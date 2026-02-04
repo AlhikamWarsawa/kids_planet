@@ -14,7 +14,7 @@
     let gameId: number | null = null;
     let game: GameDetail | null = null;
 
-    let stage: "idle" | "loading_game" | "starting_session" | "ready" | "error" = "idle";
+    let stage: "idle" | "loading_game" | "starting_session" | "ready" | "unavailable" | "error" = "idle";
     let errorMsg: string | null = null;
 
     let expiresAt: number | null = null;
@@ -269,8 +269,8 @@
         }
 
         if (!game?.game_url) {
-            stage = "error";
-            errorMsg = "Game is not playable yet (missing game_url).";
+            stage = "unavailable";
+            errorMsg = "Game not available yet.";
             return;
         }
 
@@ -352,6 +352,16 @@
         <div class="state error" role="alert">
             <div class="state-title">Error</div>
             <div class="state-sub">{errorMsg ?? "Something went wrong."}</div>
+            <div class="rowBtns">
+                <button class="pill mt" type="button" on:click={run}>Retry</button>
+                <a class="pill mt" href="/player">Back to catalog</a>
+            </div>
+        </div>
+
+    {:else if stage === "unavailable"}
+        <div class="state" role="status" aria-live="polite">
+            <div class="state-title">Game not available yet</div>
+            <div class="state-sub">{errorMsg ?? "Game not available yet."}</div>
             <div class="rowBtns">
                 <button class="pill mt" type="button" on:click={run}>Retry</button>
                 <a class="pill mt" href="/player">Back to catalog</a>

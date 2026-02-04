@@ -280,6 +280,44 @@ RETURNING id, title, slug, description, thumbnail, game_url, difficulty,
 	return &g, nil
 }
 
+func (r *GameRepo) SetGameURL(ctx context.Context, id int64, gameURL string) (*Game, error) {
+	if id <= 0 {
+		return nil, errors.New("id is required")
+	}
+
+	const q = `
+UPDATE games
+SET game_url = $2,
+    updated_at = NOW()
+WHERE id = $1
+RETURNING id, title, slug, description, thumbnail, game_url, difficulty,
+          age_category_id, free, status, created_by, created_at, updated_at;
+`
+	var g Game
+	err := r.db.QueryRowContext(ctx, q, id, gameURL).Scan(
+		&g.ID,
+		&g.Title,
+		&g.Slug,
+		&g.Description,
+		&g.Thumbnail,
+		&g.GameURL,
+		&g.Difficulty,
+		&g.AgeCategoryID,
+		&g.Free,
+		&g.Status,
+		&g.CreatedBy,
+		&g.CreatedAt,
+		&g.UpdatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	return &g, nil
+}
+
 func (r *GameRepo) ListAdmin(ctx context.Context, filter AdminGameFilter) ([]Game, error) {
 	return r.ListAdminGames(ctx, filter)
 }

@@ -155,6 +155,7 @@ export type AdminUploadZipResult = {
     object_key: string;
     etag: string;
     size: number;
+    game_url: string;
 };
 
 export function adminUploadGameZip(id: number, file: File): Promise<AdminUploadZipResult> {
