@@ -517,12 +517,12 @@ func (s *GameService) UploadAdminGameZip(ctx context.Context, gameID int64, file
 		return nil, utils.ErrBadRequest("file is required")
 	}
 	if s.zipMaxBytes > 0 && size > s.zipMaxBytes {
-		return nil, utils.ErrBadRequest(fmt.Sprintf("file too large (max %d bytes)", s.zipMaxBytes))
+		return nil, utils.ErrZipTooLarge(s.zipMaxBytes)
 	}
 
 	ext := strings.ToLower(filepath.Ext(strings.TrimSpace(filename)))
 	if ext != ".zip" {
-		return nil, utils.ErrBadRequest("file must be a .zip")
+		return nil, utils.ErrInvalidZip("file must be a .zip")
 	}
 
 	g, err := s.gameRepo.GetByID(ctx, gameID)
@@ -539,11 +539,11 @@ func (s *GameService) UploadAdminGameZip(ctx context.Context, gameID int64, file
 	head := make([]byte, 4)
 	n, err := io.ReadFull(file, head)
 	if err != nil || n < 2 {
-		return nil, utils.ErrBadRequest("invalid zip file")
+		return nil, utils.ErrInvalidZip("invalid zip file")
 	}
 	_, _ = file.Seek(0, io.SeekStart)
 	if head[0] != 'P' || head[1] != 'K' {
-		return nil, utils.ErrBadRequest("invalid zip file")
+		return nil, utils.ErrInvalidZip("invalid zip file")
 	}
 
 	ct := strings.TrimSpace(contentType)
@@ -569,7 +569,7 @@ func (s *GameService) UploadAdminGameZip(ctx context.Context, gameID int64, file
 	if _, err := io.CopyN(tmpFile, file, size); err != nil {
 		_ = tmpFile.Close()
 		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
-			return nil, utils.ErrBadRequest("invalid zip file")
+			return nil, utils.ErrInvalidZip("invalid zip file")
 		}
 		return nil, utils.ErrInternal()
 	}
@@ -593,12 +593,12 @@ func (s *GameService) UploadAdminGameZip(ctx context.Context, gameID int64, file
 	if err != nil {
 		var zipErr utils.ZipInputError
 		if errors.As(err, &zipErr) {
-			return nil, utils.ErrBadRequest(zipErr.Error())
+			return nil, utils.ErrInvalidZip(zipErr.Error())
 		}
 		return nil, utils.ErrInternal()
 	}
 	if !hasRootIndex(extracted) {
-		return nil, utils.ErrBadRequest("index.html must exist at zip root")
+		return nil, utils.ErrMissingIndexHTML()
 	}
 
 	if err := s.uploadExtractedGameFiles(ctx, gameID, extractDir, extracted); err != nil {

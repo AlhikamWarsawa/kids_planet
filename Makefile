@@ -1,7 +1,7 @@
 g:
 	git pull
 	git add .
-	git commit -m "End to End Upload Games"
+	git commit -m "Admin UX"
 	git push
 
 dev:

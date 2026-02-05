@@ -2,6 +2,9 @@
     import { onMount } from "svelte";
     import { auth } from "$lib/stores/auth";
     import { ApiError, createApiClient } from "$lib/api/client";
+    import Toast from "$lib/components/Toast.svelte";
+    import ProgressBar from "$lib/components/ProgressBar.svelte";
+    import Spinner from "$lib/components/Spinner.svelte";
     import type {
         AdminGameDTO,
         AdminGameListResponse,
@@ -20,6 +23,7 @@
 
     type UploadResult = { object_key: string; etag: string; size: number; game_url: string };
     type LastUploadInfo = UploadResult & { file_name: string; at_ms: number };
+    type UploadStage = "idle" | "uploading" | "processing";
 
     let loading = true;
     let errorMsg: string | null = null;
@@ -37,6 +41,9 @@
     let uploadFileById: Record<number, File | null> = {};
     let uploadingById: Record<number, boolean> = {};
     let lastUploadById: Record<number, LastUploadInfo | null> = {};
+    let uploadProgressById: Record<number, number | null> = {};
+    let uploadStageById: Record<number, UploadStage> = {};
+    let uploadErrorById: Record<number, string | null> = {};
 
     let toast: { kind: "ok" | "err"; message: string } | null = null;
     let toastTimer: any = null;
@@ -45,6 +52,18 @@
         toast = { kind, message };
         if (toastTimer) clearTimeout(toastTimer);
         toastTimer = setTimeout(() => (toast = null), 2200);
+    }
+
+    function setUploadProgress(gameId: number, value: number | null) {
+        uploadProgressById = { ...uploadProgressById, [gameId]: value };
+    }
+
+    function setUploadStage(gameId: number, stage: UploadStage) {
+        uploadStageById = { ...uploadStageById, [gameId]: stage };
+    }
+
+    function setUploadError(gameId: number, message: string | null) {
+        uploadErrorById = { ...uploadErrorById, [gameId]: message };
     }
 
     function formatDate(s: string) {
@@ -81,6 +100,14 @@
         return `${x.toFixed(dp)} ${units[i]}`;
     }
 
+    function playableUrlFor(g: AdminGameDTO) {
+        const last = lastUploadById[g.id];
+        const lastUrl = last?.game_url?.trim();
+        if (lastUrl) return lastUrl;
+        const gUrl = g.game_url?.trim();
+        return gUrl ? gUrl : null;
+    }
+
     function clampInt(n: number, min: number, max: number) {
         if (!Number.isFinite(n)) return min;
         return Math.max(min, Math.min(max, Math.trunc(n)));
@@ -91,11 +118,106 @@
     }
 
     function validateZipFile(f: File | null): string | null {
-        if (!f) return "file is required";
-        if (!isZipName(f.name || "")) return "only .zip files are allowed";
-        if (!Number.isFinite(f.size) || f.size <= 0) return "file is empty";
-        if (f.size > ZIP_MAX_BYTES) return `zip too large (max ${formatBytes(ZIP_MAX_BYTES)})`;
+        if (!f) return "Please choose a ZIP file.";
+        if (!isZipName(f.name || "")) return "Please choose a .zip file.";
+        if (!Number.isFinite(f.size) || f.size <= 0) return "That ZIP looks empty. Please try again.";
+        if (f.size > ZIP_MAX_BYTES) return `That ZIP is too large. Max ${formatBytes(ZIP_MAX_BYTES)}.`;
         return null;
+    }
+
+    function describeUploadError(err: unknown) {
+        if (err instanceof ApiError) {
+            switch (err.code) {
+                case "ZIP_TOO_LARGE":
+                    return `That ZIP is too large. Max ${formatBytes(ZIP_MAX_BYTES)}.`;
+                case "MISSING_INDEX_HTML":
+                    return "We couldn't find an index.html at the root of the ZIP. Move it to the top level and try again.";
+                case "INVALID_ZIP":
+                    return "That ZIP doesn't look valid. Please export again and try.";
+                case "NOT_FOUND":
+                    return "We couldn't find this game anymore. Please refresh and try again.";
+                case "INTERNAL_ERROR":
+                case "INTERNAL_SERVER_ERROR":
+                    return "Something went wrong while processing the ZIP. Please try again.";
+                case "UNAUTHORIZED":
+                    return "Your session expired. Please log in again.";
+                case "BAD_REQUEST":
+                    return err.message?.trim() || "Upload failed. Please check the ZIP and try again.";
+                case "NETWORK_ERROR":
+                    return "Network error. Please check your connection and try again.";
+                default:
+                    return err.message?.trim() || "Upload failed. Please try again.";
+            }
+        }
+
+        if (err instanceof Error) {
+            return "Network error. Please check your connection and try again.";
+        }
+
+        return "Upload failed. Please try again.";
+    }
+
+    function uploadZipRequest(
+        gameId: number,
+        file: File,
+        opts?: {
+            onProgress?: (value: number | null) => void;
+            onStage?: (stage: UploadStage) => void;
+        }
+    ): Promise<UploadResult> {
+        return new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhr.open("POST", `/api/admin/games/${gameId}/upload`);
+            xhr.responseType = "json";
+            xhr.setRequestHeader("Accept", "application/json");
+
+            const token = (auth as any).getSnapshot?.().token ?? null;
+            if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+
+            if (opts?.onStage) opts.onStage("uploading");
+
+            xhr.upload.onprogress = (evt) => {
+                if (!opts?.onProgress) return;
+                if (evt.lengthComputable) {
+                    const pct = Math.max(0, Math.min(100, Math.round((evt.loaded / evt.total) * 100)));
+                    opts.onProgress(pct);
+                } else {
+                    opts.onProgress(null);
+                }
+            };
+
+            xhr.upload.onload = () => {
+                if (opts?.onStage) opts.onStage("processing");
+                if (opts?.onProgress) opts.onProgress(null);
+            };
+
+            xhr.onerror = () => {
+                reject(new ApiError(0, "NETWORK_ERROR", "Network error"));
+            };
+
+            xhr.onabort = () => {
+                reject(new ApiError(0, "NETWORK_ERROR", "Upload canceled"));
+            };
+
+            xhr.onload = () => {
+                const status = xhr.status;
+                const json = xhr.response as any;
+
+                if (status >= 200 && status < 300) {
+                    const data = json && typeof json === "object" && "data" in json ? json.data : json;
+                    resolve(data as UploadResult);
+                    return;
+                }
+
+                const code = json?.error?.code || (status === 401 ? "UNAUTHORIZED" : "HTTP_ERROR");
+                const message = json?.error?.message || xhr.statusText || "Request failed";
+                reject(new ApiError(status, code, message));
+            };
+
+            const fd = new FormData();
+            fd.append("file", file, file.name);
+            xhr.send(fd);
+        });
     }
 
     function setUploadFile(gameId: number, f: File | null) {
@@ -108,18 +230,27 @@
 
         if (!f) {
             setUploadFile(gameId, null);
+            setUploadError(gameId, null);
+            setUploadStage(gameId, "idle");
+            setUploadProgress(gameId, null);
             return;
         }
 
         const v = validateZipFile(f);
         if (v) {
             setUploadFile(gameId, null);
+            setUploadError(gameId, v);
+            setUploadStage(gameId, "idle");
+            setUploadProgress(gameId, null);
             if (input) input.value = "";
             showToast("err", v);
             return;
         }
 
         setUploadFile(gameId, f);
+        setUploadError(gameId, null);
+        setUploadStage(gameId, "idle");
+        setUploadProgress(gameId, null);
     }
 
     async function doUploadZip(g: AdminGameDTO) {
@@ -145,12 +276,15 @@
         }
 
         uploadingById = { ...uploadingById, [gameId]: true };
+        setUploadError(gameId, null);
+        setUploadStage(gameId, "uploading");
+        setUploadProgress(gameId, 0);
 
         try {
-            const fd = new FormData();
-            fd.append("file", f, f.name);
-
-            const res = await adminApi.post<UploadResult>(`/admin/games/${gameId}/upload`, fd);
+            const res = await uploadZipRequest(gameId, f, {
+                onProgress: (value) => setUploadProgress(gameId, value),
+                onStage: (stage) => setUploadStage(gameId, stage),
+            });
 
             lastUploadById = {
                 ...lastUploadById,
@@ -165,12 +299,15 @@
             };
 
             setUploadFile(gameId, null);
-            showToast("ok", "ZIP uploaded. Game ready.");
+            showToast("ok", "Upload complete. Game ready to play.");
         } catch (e) {
-            if (e instanceof ApiError) showToast("err", `${e.code}: ${e.message}`);
-            else showToast("err", String(e));
+            const msg = describeUploadError(e);
+            setUploadError(gameId, msg);
+            showToast("err", msg);
         } finally {
             uploadingById = { ...uploadingById, [gameId]: false };
+            setUploadStage(gameId, "idle");
+            setUploadProgress(gameId, null);
         }
     }
 
@@ -413,15 +550,24 @@
             const nextFiles: Record<number, File | null> = {};
             const nextUploading: Record<number, boolean> = {};
             const nextLast: Record<number, LastUploadInfo | null> = {};
+            const nextProgress: Record<number, number | null> = {};
+            const nextStage: Record<number, UploadStage> = {};
+            const nextError: Record<number, string | null> = {};
 
             for (const id of ids) {
                 nextFiles[id] = uploadFileById[id] ?? null;
                 nextUploading[id] = uploadingById[id] ?? false;
                 nextLast[id] = lastUploadById[id] ?? null;
+                nextProgress[id] = uploadProgressById[id] ?? null;
+                nextStage[id] = uploadStageById[id] ?? "idle";
+                nextError[id] = uploadErrorById[id] ?? null;
             }
             uploadFileById = nextFiles;
             uploadingById = nextUploading;
             lastUploadById = nextLast;
+            uploadProgressById = nextProgress;
+            uploadStageById = nextStage;
+            uploadErrorById = nextError;
         } catch (e) {
             if (e instanceof ApiError) errorMsg = `${e.code}: ${e.message}`;
             else errorMsg = String(e);
@@ -496,21 +642,7 @@
     </div>
 
     {#if toast}
-        <div
-                style="
-                padding: 10px 12px;
-                border-radius: 12px;
-                border: 1px solid {toast.kind === 'ok' ? '#bfe7c6' : '#ffd1d1'};
-                background: {toast.kind === 'ok' ? '#f1fff3' : '#fff3f3'};
-                font-size: 13px;
-                max-width: 420px;
-            "
-        >
-            <b style="text-transform:uppercase; font-size: 11px; letter-spacing:.4px;">
-                {toast.kind === "ok" ? "OK" : "ERROR"}
-            </b>
-            <div style="margin-top: 4px; white-space: pre-wrap;">{toast.message}</div>
-        </div>
+        <Toast kind={toast.kind} message={toast.message} />
     {/if}
 </div>
 
@@ -817,35 +949,74 @@
                                             {/if}
                                         </div>
 
-                                        {#if lastUploadById[g.id]}
-                                            <div style="font-size: 12px; opacity:.8; line-height: 1.35;">
+                                        {#if uploadingById[g.id]}
+                                            <div style="display:grid; gap: 6px; max-width: 320px;">
+                                                <div style="display:flex; gap: 6px; align-items:center; font-size: 12px; opacity:.8;">
+                                                    <Spinner size={14} />
+                                                    {#if (uploadStageById[g.id] ?? "idle") === "processing"}
+                                                        <span>Processing ZIP…</span>
+                                                    {:else}
+                                                        <span>
+                                                            {(uploadProgressById[g.id] ?? null) != null
+                                                                ? `Uploading ${uploadProgressById[g.id]}%`
+                                                                : "Uploading…"}
+                                                        </span>
+                                                    {/if}
+                                                </div>
+                                                <ProgressBar
+                                                        value={(uploadStageById[g.id] ?? "idle") === "processing"
+                                                            ? null
+                                                            : (uploadProgressById[g.id] ?? null)}
+                                                />
+                                            </div>
+                                        {/if}
+
+                                        {#if uploadErrorById[g.id]}
+                                            <div
+                                                    style="
+                                                    font-size: 12px;
+                                                    color:#b42318;
+                                                    background:#fff3f3;
+                                                    border:1px solid #ffd1d1;
+                                                    border-radius: 10px;
+                                                    padding: 6px 8px;
+                                                "
+                                            >
+                                                {uploadErrorById[g.id]}
+                                            </div>
+                                        {/if}
+
+                                        <div style="font-size: 12px; opacity:.8; line-height: 1.35;">
+                                            <div>
+                                                <b>Playable</b>:
+                                                {#if playableUrlFor(g)}
+                                                    <a
+                                                            href={playableUrlFor(g)}
+                                                            target="_blank"
+                                                            rel="noreferrer"
+                                                            style="font-family: ui-monospace, SFMono-Regular, Menlo, monospace;"
+                                                    >
+                                                        {playableUrlFor(g)}
+                                                    </a>
+                                                {:else}
+                                                    <span>Game not available yet.</span>
+                                                {/if}
+                                            </div>
+                                            {#if lastUploadById[g.id]}
                                                 <div>
                                                     <b>Last</b>:
                                                     {(lastUploadById[g.id] as LastUploadInfo).file_name}
                                                     • {formatBytes((lastUploadById[g.id] as LastUploadInfo).size)}
                                                     • {formatMs((lastUploadById[g.id] as LastUploadInfo).at_ms)}
                                                 </div>
-                                                {#if (lastUploadById[g.id] as LastUploadInfo).game_url}
-                                                    <div>
-                                                        play:
-                                                        <a
-                                                                href={(lastUploadById[g.id] as LastUploadInfo).game_url}
-                                                                target="_blank"
-                                                                rel="noreferrer"
-                                                                style="font-family: ui-monospace, SFMono-Regular, Menlo, monospace;"
-                                                        >
-                                                            {(lastUploadById[g.id] as LastUploadInfo).game_url}
-                                                        </a>
-                                                    </div>
-                                                {/if}
                                                 <div style="font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">
                                                     key: {(lastUploadById[g.id] as LastUploadInfo).object_key}
                                                 </div>
                                                 <div style="font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">
                                                     etag: {(lastUploadById[g.id] as LastUploadInfo).etag}
                                                 </div>
-                                            </div>
-                                        {/if}
+                                            {/if}
+                                        </div>
 
                                         {#if g.status === "archived"}
                                             <div style="font-size: 12px; color:#b42318;">
