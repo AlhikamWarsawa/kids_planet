@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 
 	"github.com/ZygmaCore/kids_planet/services/api/internal/config"
 	"github.com/ZygmaCore/kids_planet/services/api/internal/models"
@@ -28,8 +29,9 @@ func NewSessionService(cfg config.Config, gameRepo *repos.GameRepo) *SessionServ
 }
 
 type PlayTokenClaims struct {
-	GameID int64  `json:"game_id"`
-	Typ    string `json:"typ"`
+	GameID    int64  `json:"game_id"`
+	SessionID string `json:"session_id"`
+	Typ       string `json:"typ"`
 	jwt.RegisteredClaims
 }
 
@@ -56,10 +58,12 @@ func (s *SessionService) StartSession(ctx context.Context, gameID int64, sub str
 
 	now := time.Now().UTC()
 	exp := now.Add(s.ttl)
+	sessionID := uuid.NewString()
 
 	claims := PlayTokenClaims{
-		GameID: gameID,
-		Typ:    "play",
+		GameID:    gameID,
+		SessionID: sessionID,
+		Typ:       "play",
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    s.cfg.JWT.Issuer,
 			Subject:   sub,

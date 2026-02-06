@@ -470,9 +470,7 @@ paths:
     post:
       tags: [Analytics]
       summary: Track analytics event (from game)
-      description: Called by HTML5 game. Requires play_token.
-      security:
-        - playTokenAuth: []
+      description: Called by HTML5 game. Requires play_token in request body.
       requestBody:
         required: true
         content:
@@ -494,8 +492,18 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "404":
+          description: Play session not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
         "429":
           description: Rate limited
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "500":
+          description: Internal error
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorResponse" }
@@ -1496,23 +1504,15 @@ components:
 
     AnalyticsEventRequest:
       type: object
-      required: [game_id, event_type, timestamp]
+      required: [play_token, name]
       properties:
-        game_id: { type: integer, format: int64 }
-        event_type:
-          type: string
-          enum:
-            - game_start
-            - game_end
-            - level_completed
-            - answer_correct
-            - answer_wrong
-            - time_spent
-        timestamp: { type: string, format: date-time }
-        payload:
+        play_token: { type: string, description: Short-lived token from /sessions/start }
+        name: { type: string, description: Event name (e.g. level_start) }
+        data:
           type: object
           additionalProperties: true
-          description: Event-specific arbitrary payload (kept flexible for MVP)
+          nullable: true
+          description: Optional event payload (kept flexible for MVP)
 
     AdminOverview:
       type: object

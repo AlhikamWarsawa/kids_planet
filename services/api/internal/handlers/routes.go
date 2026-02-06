@@ -30,6 +30,7 @@ func Register(app *fiber.App, deps Deps) {
 	gameRepo := repos.NewGameRepo(deps.DB)
 	userRepo := repos.NewUserRepo(deps.DB)
 	submissionRepo := repos.NewSubmissionRepo(deps.DB)
+	analyticsRepo := repos.NewAnalyticsRepo(deps.DB)
 
 	ageCategoryRepo := repos.NewAgeCategoryRepo(deps.DB)
 	educationCategoryRepo := repos.NewEducationCategoryRepo(deps.DB)
@@ -52,6 +53,9 @@ func Register(app *fiber.App, deps Deps) {
 
 	sessionsHandler := public.NewSessionsHandler(sessionSvc)
 	api.Post("/sessions/start", sessionsHandler.Start)
+
+	analyticsHandler := public.NewAnalyticsHandler(deps.Cfg, analyticsRepo)
+	api.Post("/analytics/event", analyticsHandler.TrackEvent)
 
 	leaderboardHandler := public.NewLeaderboardHandler(leaderboardSvc)
 	api.Get("/leaderboard/:game_id<int>", leaderboardHandler.GetTop)
