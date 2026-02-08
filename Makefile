@@ -1,7 +1,7 @@
 g:
 	git pull
 	git add .
-	git commit -m "Analytics Event"
+	git commit -m "Admin Dashboard"
 	git push
 
 dev:

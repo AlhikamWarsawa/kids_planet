@@ -10,3 +10,6 @@ func main() {
 	h, _ := bcrypt.GenerateFromPassword([]byte("123456"), bcrypt.DefaultCost)
 	fmt.Println(string(h))
 }
+
+// cd services/api/other
+// go run hash.go

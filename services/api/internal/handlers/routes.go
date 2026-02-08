@@ -31,6 +31,8 @@ func Register(app *fiber.App, deps Deps) {
 	userRepo := repos.NewUserRepo(deps.DB)
 	submissionRepo := repos.NewSubmissionRepo(deps.DB)
 	analyticsRepo := repos.NewAnalyticsRepo(deps.DB)
+	dashboardRepo := repos.NewDashboardRepo(deps.DB)
+	sessionRepo := repos.NewSessionRepo(deps.DB)
 
 	ageCategoryRepo := repos.NewAgeCategoryRepo(deps.DB)
 	educationCategoryRepo := repos.NewEducationCategoryRepo(deps.DB)
@@ -42,10 +44,11 @@ func Register(app *fiber.App, deps Deps) {
 		deps.Cfg.Upload.ZipMaxBytes,
 	)
 
-	sessionSvc := services.NewSessionService(deps.Cfg, gameRepo)
+	sessionSvc := services.NewSessionService(deps.Cfg, gameRepo, sessionRepo)
 	leaderboardSvc := services.NewLeaderboardService(deps.Valkey, submissionRepo)
 
 	categorySvc := services.NewCategoryService(ageCategoryRepo, educationCategoryRepo)
+	dashboardSvc := services.NewDashboardService(dashboardRepo)
 
 	gamesHandler := public.NewGamesHandler(gameSvc)
 	api.Get("/games", gamesHandler.List)
@@ -79,6 +82,9 @@ func Register(app *fiber.App, deps Deps) {
 
 	adminMe := admin.NewMeHandler(userRepo)
 	adminGroup.Get("/me", adminMe.Get)
+
+	adminDashboard := admin.NewDashboardHandler(dashboardSvc)
+	adminGroup.Get("/dashboard/overview", adminDashboard.Overview)
 
 	adminGames := admin.NewGamesHandler(gameSvc)
 	adminGroup.Get("/games", adminGames.List)

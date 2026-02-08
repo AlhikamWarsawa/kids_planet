@@ -131,7 +131,7 @@
                         bind:value={email}
                         type="email"
                         autocomplete="email"
-                        placeholder="admin@kidsplanet.com"
+                        placeholder="a@a.a"
                         disabled={loading || checkingSession}
                         style="
             width: 100%;
@@ -170,7 +170,7 @@
                         bind:value={password}
                         type="password"
                         autocomplete="current-password"
-                        placeholder="********"
+                        placeholder="123456"
                         disabled={loading || checkingSession}
                         style="
             width: 100%;

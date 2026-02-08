@@ -646,7 +646,6 @@
     {/if}
 </div>
 
-<!-- Filters -->
 <div style="margin-top: 16px; display:flex; gap: 10px; flex-wrap: wrap; align-items: end;">
     <div style="display:grid; gap: 6px;">
         <div style="font-size: 12px; opacity: .7;">Status</div>

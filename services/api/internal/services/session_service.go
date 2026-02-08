@@ -17,13 +17,15 @@ import (
 type SessionService struct {
 	cfg      config.Config
 	gameRepo *repos.GameRepo
+	sessRepo *repos.SessionRepo
 	ttl      time.Duration
 }
 
-func NewSessionService(cfg config.Config, gameRepo *repos.GameRepo) *SessionService {
+func NewSessionService(cfg config.Config, gameRepo *repos.GameRepo, sessRepo *repos.SessionRepo) *SessionService {
 	return &SessionService{
 		cfg:      cfg,
 		gameRepo: gameRepo,
+		sessRepo: sessRepo,
 		ttl:      2 * time.Hour,
 	}
 }
@@ -57,6 +59,10 @@ func (s *SessionService) StartSession(ctx context.Context, gameID int64, sub str
 	}
 
 	now := time.Now().UTC()
+	if _, err := s.sessRepo.Create(ctx, gameID, now); err != nil {
+		e := utils.ErrInternal()
+		return nil, &e
+	}
 	exp := now.Add(s.ttl)
 	sessionID := uuid.NewString()
 
