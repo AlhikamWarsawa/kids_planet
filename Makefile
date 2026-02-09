@@ -1,7 +1,7 @@
 g:
 	git pull
 	git add .
-	git commit -m "Admin Dashboard"
+	git commit -m "Popularity Sort"
 	git push
 
 dev:

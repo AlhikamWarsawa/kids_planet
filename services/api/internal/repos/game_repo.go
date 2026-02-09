@@ -500,7 +500,7 @@ func (r *GameRepo) ListPublic(ctx context.Context, filter GameListFilter) ([]Gam
 	filter.normalize()
 	offset := (filter.Page - 1) * filter.Limit
 
-	const q = `
+	const qNewest = `
 SELECT
   g.id,
   g.title,
@@ -522,8 +522,42 @@ WHERE g.status = 'active'
 ORDER BY g.created_at DESC
 LIMIT $3 OFFSET $4;
 `
+	const qPopular = `
+SELECT
+  g.id,
+  g.title,
+  g.slug,
+  g.thumbnail,
+  g.game_url,
+  g.age_category_id,
+  g.free,
+  g.created_at
+FROM games g
+LEFT JOIN (
+  SELECT ae.game_id, COUNT(*) AS popularity
+  FROM analytics_events ae
+  WHERE ae.event_name = 'game_start'
+    AND ae.created_at >= NOW() - INTERVAL '7 days'
+  GROUP BY ae.game_id
+) pop ON pop.game_id = g.id
+WHERE g.status = 'active'
+  AND ($1::bigint IS NULL OR g.age_category_id = $1::bigint)
+  AND ($2::bigint IS NULL OR EXISTS (
+    SELECT 1
+    FROM game_education_categories gec
+    WHERE gec.game_id = g.id
+      AND gec.education_category_id = $2::bigint
+  ))
+ORDER BY COALESCE(pop.popularity, 0) DESC, g.created_at DESC, g.id DESC
+LIMIT $3 OFFSET $4;
+`
 
-	rows, err := r.db.QueryContext(ctx, q,
+	query := qNewest
+	if filter.Sort == GameSortPopular {
+		query = qPopular
+	}
+
+	rows, err := r.db.QueryContext(ctx, query,
 		filter.AgeCategoryID,
 		filter.EducationCategoryID,
 		filter.Limit,
