@@ -17,6 +17,12 @@ type LeaderboardService struct {
 	submissionRepo *repos.SubmissionRepo
 }
 
+const (
+	maxLeaderboardScore   = 1_000_000
+	suspiciousBurstLimit  = 8
+	suspiciousBurstWindow = 10 * time.Second
+)
+
 func NewLeaderboardService(valkey *clients.Valkey, submissionRepo *repos.SubmissionRepo) *LeaderboardService {
 	return &LeaderboardService{
 		valkey:         valkey,
@@ -57,6 +63,27 @@ func (s *LeaderboardService) SubmitScore(
 		return nil, &e
 	}
 
+	sessionID = strings.TrimSpace(sessionID)
+
+	flagReasons := make([]string, 0, 2)
+	if req.Score > maxLeaderboardScore {
+		flagReasons = append(flagReasons, "score_out_of_bounds")
+	}
+	if sessionID == "" {
+		flagReasons = append(flagReasons, "missing_session_id")
+	}
+
+	if sessionID != "" && s.valkey != nil {
+		key := "ac:leaderboard:submit:burst:" + sessionID
+		count, err := s.valkey.IncrWithTTL(ctx, key, suspiciousBurstWindow)
+		if err == nil && count > int64(suspiciousBurstLimit) {
+			flagReasons = append(flagReasons, "rate_suspicious")
+		}
+	}
+
+	flagged := len(flagReasons) > 0
+	flagReason := strings.Join(flagReasons, ",")
+
 	member := "g:" + guestID
 	now := time.Now().UTC()
 
@@ -67,8 +94,8 @@ func (s *LeaderboardService) SubmitScore(
 		Score:         req.Score,
 		IPHash:        nullString(ipHash),
 		UserAgentHash: nullString(userAgentHash),
-		Flagged:       false,
-		FlagReason:    sql.NullString{Valid: false},
+		Flagged:       flagged,
+		FlagReason:    nullString(flagReason),
 	}
 
 	if _, err := s.submissionRepo.CreateSubmission(ctx, sub); err != nil {

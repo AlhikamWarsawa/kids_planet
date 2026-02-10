@@ -13,13 +13,15 @@ import (
 )
 
 const (
-	LocalPlayGameID = "play_game_id"
-	LocalPlayExp    = "play_exp"
+	LocalPlayGameID    = "play_game_id"
+	LocalPlayExp       = "play_exp"
+	LocalPlaySessionID = "play_session_id"
 )
 
 type PlayClaims struct {
-	GameID int64  `json:"game_id"`
-	Typ    string `json:"typ"`
+	GameID    int64  `json:"game_id"`
+	SessionID string `json:"session_id"`
+	Typ       string `json:"typ"`
 	jwt.RegisteredClaims
 }
 
@@ -76,6 +78,7 @@ func PlayToken(cfg config.Config) fiber.Handler {
 
 		c.Locals(LocalPlayGameID, claims.GameID)
 		c.Locals(LocalPlayExp, exp)
+		c.Locals(LocalPlaySessionID, strings.TrimSpace(claims.SessionID))
 
 		return c.Next()
 	}

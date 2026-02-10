@@ -32,13 +32,14 @@ func (h *LeaderboardHandler) Submit(c *fiber.Ctx) error {
 	}
 
 	guestID := strings.TrimSpace(c.Get("X-Guest-Id"))
+	sessionID := strings.TrimSpace(getTokenSessionID(c))
 
 	resp, appErr := h.svc.SubmitScore(
 		c.Context(),
 		tokenGameID,
 		guestID,
 		req,
-		"",
+		sessionID,
 		"",
 		"",
 	)
@@ -60,6 +61,18 @@ func getTokenGameID(c *fiber.Ctx) (int64, bool) {
 		return int64(t), true
 	default:
 		return 0, false
+	}
+}
+
+func getTokenSessionID(c *fiber.Ctx) string {
+	v := c.Locals(middleware.LocalPlaySessionID)
+	switch t := v.(type) {
+	case string:
+		return t
+	case []byte:
+		return string(t)
+	default:
+		return ""
 	}
 }
 

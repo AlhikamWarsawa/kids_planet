@@ -65,6 +65,7 @@ func Register(app *fiber.App, deps Deps) {
 	api.Post(
 		"/leaderboard/submit",
 		middleware.PlayToken(deps.Cfg),
+		middleware.RateLimitLeaderboardSubmit(deps.Valkey),
 		leaderboardHandler.Submit,
 	)
 

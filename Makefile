@@ -1,7 +1,7 @@
 g:
 	git pull
 	git add .
-	git commit -m "Popularity Sort"
+	git commit -m "Rate Limit"
 	git push
 
 dev:

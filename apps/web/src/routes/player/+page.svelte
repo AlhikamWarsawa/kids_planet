@@ -38,6 +38,10 @@
     let selectedCategory: number | null = null;
 
     let sort: 'newest' | 'popular' = 'newest';
+    const sortOptions = [
+        { value: 'newest', label: 'Terbaru' },
+        { value: 'popular', label: 'Popular' }
+    ] as const;
 
     let showAgeModal = false;
     let showCatModal = false;
@@ -58,8 +62,6 @@
 
     $: ageLabel = getAgeLabel(selectedAge);
     $: catLabel = getCatLabel(selectedCategory);
-    $: sortLabel = sort === 'newest' ? 'Terbaru' : 'Popular';
-
     async function loadInitial(opts: { keepList?: boolean } = {}) {
         const seq = ++reqSeq;
 
@@ -128,19 +130,21 @@
         }
     }
 
-    function applyFilters() {
+    function applyFilters(opts: { keepList?: boolean } = {}) {
         page = 1;
-        loadInitial({ keepList: true });
+        loadInitial({ keepList: opts.keepList ?? true });
     }
 
-    function toggleSort() {
-        sort = sort === 'newest' ? 'popular' : 'newest';
-        applyFilters();
+    function setSort(next: 'newest' | 'popular') {
+        if (sort === next) return;
+        sort = next;
+        applyFilters({ keepList: false });
     }
 
     onMount(() => {
         loadInitial();
     });
+
 </script>
 
 <svelte:head>
@@ -159,9 +163,20 @@
             </div>
 
             <div class="right">
-                <button class="pill" type="button" on:click={toggleSort}>
-                    {sortLabel}
-                </button>
+                <div class="sortGroup" role="group" aria-label="Sort games">
+                    {#each sortOptions as opt}
+                        <button
+                                class="pill sortPill"
+                                class:active={sort === opt.value}
+                                type="button"
+                                on:click={() => setSort(opt.value)}
+                                aria-pressed={sort === opt.value}
+                                disabled={loading}
+                        >
+                            {opt.label}
+                        </button>
+                    {/each}
+                </div>
 
                 <button class="pill" type="button" on:click={() => (showAgeModal = true)}>
                     {ageLabel}
@@ -333,12 +348,20 @@
 
     .pill:hover { background: #f5f5f5; }
     .pill:disabled { opacity: 0.6; cursor: not-allowed; }
+    .pill.active { background: #222; color: #fff; border-color: #222; }
 
     .pill.sm {
         padding: 8px 12px;
         border-width: 3px;
         font-weight: 800;
         font-size: 12px;
+    }
+
+    .sortGroup {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        align-items: center;
     }
 
     .grid {

@@ -3,6 +3,7 @@ package clients
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/ZygmaCore/kids_planet/services/api/internal/config"
@@ -22,6 +23,14 @@ const (
 	DailyTTL  = 8 * 24 * time.Hour
 	WeeklyTTL = 6 * 7 * 24 * time.Hour
 )
+
+var incrWithTTLScript = redis.NewScript(`
+local current = redis.call("INCR", KEYS[1])
+if current == 1 then
+  redis.call("PEXPIRE", KEYS[1], ARGV[1])
+end
+return current
+`)
 
 func NewValkey(cfg config.ValkeyConfig) (*Valkey, error) {
 	rdb := redis.NewClient(&redis.Options{
@@ -92,6 +101,37 @@ func (v *Valkey) ZRem(ctx context.Context, key string, members ...string) error 
 		return nil
 	}
 	return v.rdb.ZRem(ctx, key, members).Err()
+}
+
+func (v *Valkey) IncrWithTTL(ctx context.Context, key string, ttl time.Duration) (int64, error) {
+	if ttl <= 0 {
+		return v.rdb.Incr(ctx, key).Result()
+	}
+
+	ms := ttl.Milliseconds()
+	if ms <= 0 {
+		ms = 1
+	}
+
+	res, err := incrWithTTLScript.Run(ctx, v.rdb, []string{key}, ms).Result()
+	if err != nil {
+		return 0, err
+	}
+
+	switch value := res.(type) {
+	case int64:
+		return value, nil
+	case float64:
+		return int64(value), nil
+	case string:
+		parsed, err := strconv.ParseInt(value, 10, 64)
+		if err != nil {
+			return 0, fmt.Errorf("valkey.incr_with_ttl: parse result: %w", err)
+		}
+		return parsed, nil
+	default:
+		return 0, fmt.Errorf("valkey.incr_with_ttl: unexpected result type %T", res)
+	}
 }
 
 func KeyGameDaily(gameID int64, t time.Time) string {
