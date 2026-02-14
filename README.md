@@ -1,6 +1,19 @@
-# Kids Planet
+<h1 align="center">Kids_Planet</h1>
 
-This platform is a web based educational gaming portal for children, featuring a collection of HTML5 games that can be played directly in the browser (both desktop and mobile).
+<p align="center">
+  <img src="https://img.shields.io/badge/license-MIT-blue.svg" />
+  <img src="https://img.shields.io/badge/language-Python-blue.svg" />
+  <img src="https://img.shields.io/badge/status-stable-brightgreen.svg" />
+</p>
+
+<p align="center">
+  <img src="img/icon.png" alt="Logo" width="180">
+</p>
+
+<h3 align="center">
+This platform is a web based educational gaming portal for children, featuring a collection of HTML5 games that can be played directly in the browser<br> (both desktop and mobile).
+</h3>
+
 
 ---
 

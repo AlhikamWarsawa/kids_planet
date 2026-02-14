@@ -1,7 +1,7 @@
 g:
 	git pull
 	git add .
-	git commit -m "Rate Limit"
+	git commit -m "Add Icon"
 	git push
 
 dev:
