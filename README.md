@@ -2,8 +2,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/license-MIT-blue.svg" />
-  <img src="https://img.shields.io/badge/language-Python-blue.svg" />
-  <img src="https://img.shields.io/badge/status-stable-brightgreen.svg" />
+  <img src="https://img.shields.io/badge/language-Go-blue.svg" />
 </p>
 
 <p align="center">
