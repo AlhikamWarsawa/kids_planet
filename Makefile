@@ -1,7 +1,7 @@
 g:
 	git pull
 	git add .
-	git commit -m "Add Icon"
+	git commit -m "Moderation Score + Seed Demo"
 	git push
 
 dev:
@@ -26,3 +26,6 @@ psql:
 
 psqll:
 	docker exec -it planet_postgres_infra psql -U admin -d kids_planet
+
+seed:
+	docker exec -i planet_postgres psql -U admin -d kids_planet < db/seeds/seed_core.sql

@@ -2,8 +2,10 @@ package clients
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/ZygmaCore/kids_planet/services/api/internal/config"
@@ -101,6 +103,27 @@ func (v *Valkey) ZRem(ctx context.Context, key string, members ...string) error 
 		return nil
 	}
 	return v.rdb.ZRem(ctx, key, members).Err()
+}
+
+func (v *Valkey) ZRemPipeline(ctx context.Context, keys []string, member string) error {
+	if v == nil {
+		return errors.New("valkey client is nil")
+	}
+	member = strings.TrimSpace(member)
+	if member == "" || len(keys) == 0 {
+		return nil
+	}
+
+	pipe := v.rdb.Pipeline()
+	for _, key := range keys {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		pipe.ZRem(ctx, key, member)
+	}
+	_, err := pipe.Exec(ctx)
+	return err
 }
 
 func (v *Valkey) IncrWithTTL(ctx context.Context, key string, ttl time.Duration) (int64, error) {

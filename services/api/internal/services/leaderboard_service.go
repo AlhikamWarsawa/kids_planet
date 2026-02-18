@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"strings"
 	"time"
 
@@ -91,6 +92,7 @@ func (s *LeaderboardService) SubmitScore(
 		GameID:        req.GameID,
 		PlayerID:      sql.NullInt64{Valid: false},
 		SessionID:     nullString(sessionID),
+		Member:        nullString(member),
 		Score:         req.Score,
 		IPHash:        nullString(ipHash),
 		UserAgentHash: nullString(userAgentHash),
@@ -191,6 +193,50 @@ func (s *LeaderboardService) GetTop(
 	}
 
 	return items, nil
+}
+
+func (s *LeaderboardService) RemoveSubmissionFromLeaderboards(
+	ctx context.Context,
+	submission *repos.LeaderboardSubmission,
+) error {
+	if submission == nil {
+		return errors.New("submission is required")
+	}
+	if submission.GameID <= 0 {
+		return errors.New("game_id must be >= 1")
+	}
+	if s.valkey == nil {
+		return errors.New("valkey client is not configured")
+	}
+
+	member := strings.TrimSpace(submission.Member.String)
+	if member == "" && submission.SessionID.Valid {
+		sessionID := strings.TrimSpace(submission.SessionID.String)
+		if sessionID != "" {
+			member = "g:" + sessionID
+		}
+	}
+	if member == "" {
+		return errors.New("missing leaderboard member")
+	}
+
+	t := submission.CreatedAt
+	if t.IsZero() {
+		t = time.Now().UTC()
+	}
+
+	keys := []string{
+		clients.KeyGameDaily(submission.GameID, t),
+		clients.KeyGameWeekly(submission.GameID, t),
+		clients.KeyGlobalDaily(t),
+		clients.KeyGlobalWeekly(t),
+	}
+
+	if err := s.valkey.ZRemPipeline(ctx, keys, member); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (s *LeaderboardService) upsertIfHigher(

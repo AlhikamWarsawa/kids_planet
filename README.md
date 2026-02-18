@@ -1,7 +1,9 @@
 <h1 align="center">Kids_Planet</h1>
 
 <p align="center">
+<a href="https://github.com/ZygmaCore/kids_planet/blob/main/LICENSE">
   <img src="https://img.shields.io/badge/license-MIT-blue.svg" />
+</a>
   <img src="https://img.shields.io/badge/language-Go-blue.svg" />
 </p>
 
