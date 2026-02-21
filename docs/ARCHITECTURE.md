@@ -1,4 +1,4 @@
-# MVP Architecture (Day 28 Freeze)
+# MVP Architecture
 
 ## System Components
 - **Web (SvelteKit)**: Player catalog/play UI and Admin UI (`apps/web`)
@@ -19,7 +19,7 @@
 ## High-Level Diagram
 
 ```mermaid
-flowchart LR
+flowchart
   U["Player/Admin Browser"] --> W["Web App (SvelteKit)"]
   W --> A["API (Go Fiber)"]
   A --> P["Postgres"]

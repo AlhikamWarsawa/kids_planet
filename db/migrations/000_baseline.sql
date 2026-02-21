@@ -1,6 +1,3 @@
--- MVP baseline schema (Day 28 freeze)
--- Represents the final schema after applying legacy migrations 001-008.
-
 -- ENUM TYPES
 
 CREATE TYPE user_role AS ENUM ('admin', 'player');
@@ -10,7 +7,8 @@ CREATE TYPE game_difficulty AS ENUM ('easy', 'medium', 'hard');
 
 -- USERS
 
-CREATE TABLE users (
+CREATE TABLE users
+(
     id            BIGSERIAL PRIMARY KEY,
     public_id     UUID UNIQUE,
     name          VARCHAR(150) NOT NULL,
@@ -25,9 +23,17 @@ CREATE TABLE users (
         CHECK (role <> 'player' OR (public_id IS NOT NULL AND pin_hash IS NOT NULL))
 );
 
+CREATE UNIQUE INDEX idx_users_public_id_unique
+    ON users (public_id)
+    WHERE public_id IS NOT NULL;
+
+CREATE INDEX idx_users_role_status
+    ON users (role, status);
+
 -- PLAYERS
 
-CREATE TABLE players (
+CREATE TABLE players
+(
     id         BIGSERIAL PRIMARY KEY,
     user_id    BIGINT UNIQUE,
     nickname   VARCHAR(100) NOT NULL,
@@ -41,7 +47,8 @@ CREATE TABLE players (
 
 -- EDUCATION CATEGORIES
 
-CREATE TABLE education_categories (
+CREATE TABLE education_categories
+(
     id         BIGSERIAL PRIMARY KEY,
     name       VARCHAR(100) NOT NULL UNIQUE,
     icon       VARCHAR(100),
@@ -51,7 +58,8 @@ CREATE TABLE education_categories (
 
 -- AGE CATEGORIES
 
-CREATE TABLE age_categories (
+CREATE TABLE age_categories
+(
     id         BIGSERIAL PRIMARY KEY,
     label      VARCHAR(50) NOT NULL UNIQUE,
     min_age    INT         NOT NULL,
@@ -61,9 +69,13 @@ CREATE TABLE age_categories (
         CHECK (min_age >= 0 AND max_age >= min_age)
 );
 
+CREATE INDEX idx_age_categories_range
+    ON age_categories (min_age, max_age);
+
 -- GAMES
 
-CREATE TABLE games (
+CREATE TABLE games
+(
     id              BIGSERIAL PRIMARY KEY,
     title           VARCHAR(150) NOT NULL,
     slug            VARCHAR(150) NOT NULL UNIQUE,
@@ -87,9 +99,22 @@ CREATE TABLE games (
             ON DELETE RESTRICT
 );
 
+CREATE INDEX idx_games_status
+    ON games (status);
+
+CREATE INDEX idx_games_age_category_id
+    ON games (age_category_id);
+
+CREATE INDEX idx_games_created_by
+    ON games (created_by);
+
+CREATE INDEX idx_games_created_at
+    ON games (created_at DESC);
+
 -- GAME EDUCATION CATEGORIES
 
-CREATE TABLE game_education_categories (
+CREATE TABLE game_education_categories
+(
     id                    BIGSERIAL PRIMARY KEY,
     game_id               BIGINT NOT NULL,
     education_category_id BIGINT NOT NULL,
@@ -104,9 +129,16 @@ CREATE TABLE game_education_categories (
             ON DELETE CASCADE
 );
 
+CREATE INDEX idx_gec_game_id
+    ON game_education_categories (game_id);
+
+CREATE INDEX idx_gec_education_category_id
+    ON game_education_categories (education_category_id);
+
 -- LEADERBOARD SUBMISSIONS
 
-CREATE TABLE leaderboard_submissions (
+CREATE TABLE leaderboard_submissions
+(
     id                  BIGSERIAL PRIMARY KEY,
     game_id             BIGINT    NOT NULL,
     player_id           BIGINT,
@@ -137,9 +169,19 @@ CREATE TABLE leaderboard_submissions (
         CHECK (score >= 0)
 );
 
+CREATE INDEX idx_leaderboard_submissions_game_created_at
+    ON leaderboard_submissions (game_id, created_at DESC);
+
+CREATE INDEX idx_leaderboard_submissions_flagged_created_at
+    ON leaderboard_submissions (flagged, created_at DESC);
+
+CREATE INDEX idx_leaderboard_submissions_removed_at
+    ON leaderboard_submissions (removed_at DESC);
+
 -- ANALYTICS EVENTS
 
-CREATE TABLE analytics_events (
+CREATE TABLE analytics_events
+(
     id         BIGSERIAL PRIMARY KEY,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     session_id TEXT        NOT NULL,
@@ -154,53 +196,6 @@ CREATE TABLE analytics_events (
             ON DELETE CASCADE
 );
 
--- SESSIONS
-
-CREATE TABLE sessions (
-    id         BIGSERIAL PRIMARY KEY,
-    game_id    BIGINT    NOT NULL,
-    started_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    CONSTRAINT fk_sessions_game
-        FOREIGN KEY (game_id)
-            REFERENCES games (id)
-            ON DELETE CASCADE
-);
-
--- INDEXES
-
-CREATE INDEX idx_users_role_status
-    ON users (role, status);
-
-CREATE INDEX idx_age_categories_range
-    ON age_categories (min_age, max_age);
-
-CREATE INDEX idx_games_status
-    ON games (status);
-
-CREATE INDEX idx_games_age_category_id
-    ON games (age_category_id);
-
-CREATE INDEX idx_games_created_by
-    ON games (created_by);
-
-CREATE INDEX idx_games_created_at
-    ON games (created_at DESC);
-
-CREATE INDEX idx_gec_game_id
-    ON game_education_categories (game_id);
-
-CREATE INDEX idx_gec_education_category_id
-    ON game_education_categories (education_category_id);
-
-CREATE INDEX idx_leaderboard_submissions_game_created_at
-    ON leaderboard_submissions (game_id, created_at DESC);
-
-CREATE INDEX idx_leaderboard_submissions_flagged_created_at
-    ON leaderboard_submissions (flagged, created_at DESC);
-
-CREATE INDEX idx_leaderboard_submissions_removed_at
-    ON leaderboard_submissions (removed_at DESC);
-
 CREATE INDEX idx_analytics_events_session_id
     ON analytics_events (session_id);
 
@@ -209,6 +204,19 @@ CREATE INDEX idx_analytics_events_game_id
 
 CREATE INDEX idx_analytics_events_created_at
     ON analytics_events (created_at DESC);
+
+-- SESSIONS
+
+CREATE TABLE sessions
+(
+    id         BIGSERIAL PRIMARY KEY,
+    game_id    BIGINT    NOT NULL,
+    started_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    CONSTRAINT fk_sessions_game
+        FOREIGN KEY (game_id)
+            REFERENCES games (id)
+            ON DELETE CASCADE
+);
 
 CREATE INDEX idx_sessions_started_at
     ON sessions (started_at DESC);

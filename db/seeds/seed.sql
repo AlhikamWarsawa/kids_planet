@@ -1,6 +1,3 @@
--- MVP baseline seed (Day 28 freeze)
--- Minimal deterministic data for admin login + catalog/session/leaderboard/moderation flows.
-
 -- ADMIN USER
 INSERT INTO users (name, email, password_hash, role, status)
 VALUES (
