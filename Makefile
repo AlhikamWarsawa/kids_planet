@@ -1,7 +1,7 @@
 g:
 	git pull
 	git add .
-	git commit -m "Moderation Score + Seed Demo"
+	git commit -m "Player Auth + Add MVP Feature"
 	git push
 
 dev:

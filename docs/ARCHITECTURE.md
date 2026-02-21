@@ -1,170 +1,95 @@
-# Architecture Overview
-This document serves as a critical, living template designed to equip agents with a rapid and comprehensive understanding of the codebase's architecture, enabling efficient navigation and effective contribution from day one. Update this document as the codebase evolves.
+# MVP Architecture (Day 28 Freeze)
 
-## 1. Project Structure
-This section provides a high-level overview of the project's directory and file structure, categorised by architectural layer or major functional area. It is essential for quickly navigating the codebase, locating relevant files, and understanding the overall organization and separation of concerns.
+## System Components
+- **Web (SvelteKit)**: Player catalog/play UI and Admin UI (`apps/web`)
+- **API (Go Fiber)**: Public + Admin HTTP API (`services/api`)
+- **Postgres**: Source of truth for games, sessions, analytics, submissions, moderation state
+- **Valkey (Redis-compatible)**: Leaderboard sorted-set index/cache + rate-limit counters
+- **MinIO**: HTML5 game package/object storage
+- **Nginx (prod)**: Reverse proxy for `/api/*`, static web serving, game asset path routing
 
-```
-[Project Root]/
-├── backend/              # Contains all server-side code and APIs
-│   ├── src/              # Main source code for backend services
-│   │   ├── api/          # API endpoints and controllers
-│   │   ├── client/       # Business logic and service implementations
-│   │   ├── models/       # Database models/schemas
-│   │   └── utils/        # Backend utility functions
-│   ├── config/           # Backend configuration files
-│   ├── tests/            # Backend unit and integration tests
-│   └── Dockerfile        # Dockerfile for backend deployment
-├── frontend/             # Contains all client-side code for user interfaces
-│   ├── src/              # Main source code for frontend applications
-│   │   ├── components/   # Reusable UI components
-│   │   ├── pages/        # Application pages/views
-│   │   ├── assets/       # Images, fonts, and other static assets
-│   │   ├── services/     # Frontend services for API interaction
-│   │   └── store/        # State management (e.g., Redux, Vuex, Context API)
-│   ├── public/           # Publicly accessible assets (e.g., index.html)
-│   ├── tests/            # Frontend unit and E2E tests
-│   └── package.json      # Frontend dependencies and scripts
-├── common/               # Shared code, types, and utilities used by both frontend and backend
-│   ├── types/            # Shared TypeScript/interface definitions
-│   └── utils/            # General utility functions
-├── docs/                 # Project documentation (e.g., API docs, setup guides)
-├── scripts/              # Automation scripts (e.g., deployment, data seeding)
-├── .github/              # GitHub Actions or other CI/CD configurations
-├── .gitignore            # Specifies intentionally untracked files to ignore
-├── README.md             # Project overview and quick start guide
-└── ARCHITECTURE.md       # This document
+## Core Domains
+- **Games**: Catalog, game detail, metadata, active/draft lifecycle
+- **Sessions**: Start play session, issue short-lived play token
+- **Analytics**: Event ingestion (`game_start`, etc.) into Postgres
+- **Leaderboards**: Score submit/read, daily/weekly scopes, game/global keys
+- **Moderation**: Flagged submissions list + remove score workflow
+- **Admin**: Auth, dashboard overview, moderation operations
+
+## High-Level Diagram
+
+```mermaid
+flowchart LR
+  U["Player/Admin Browser"] --> W["Web App (SvelteKit)"]
+  W --> A["API (Go Fiber)"]
+  A --> P["Postgres"]
+  A --> V["Valkey"]
+  A --> M["MinIO"]
+  N["Nginx (prod)"] --> W
+  N --> A
+  N --> M
 ```
 
-
-## 2. High-Level System Diagram
-Provide a simple block diagram (e.g., a C4 Model Level 1: System Context diagram, or a basic component diagram) or a clear text-based description of the major components and their interactions. Focus on how data flows, services communicate, and key architectural boundaries.
-
-[User] <--> [Frontend Application] <--> [Backend Service 1] <--> [Database 1]
-|
-+--> [Backend Service 2] <--> [External API]
-
-## 3. Core Components
-(List and briefly describe the main components of the system. For each, include its primary responsibility and key technologies used.)
-
-### 3.1. Frontend
-
-Name: [e.g., Web App, Mobile App]
-
-Description: Briefly describe its primary purpose, key functionalities, and how users or other systems interact with it. E.g., 'The main user interface for interacting with the system, allowing users to manage their profiles, view data dashboards, and initiate workflows.'
-
-Technologies: [e.g., React, Next.js, Vue.js, Swift/Kotlin, HTML/CSS/JS]
-
-Deployment: [e.g., Vercel, Netlify, S3/CloudFront]
-
-### 3.2. Backend Services
-
-(Repeat for each significant backend service. Add more as needed.)
-
-#### 3.2.1. [Service Name 1]
-
-Name: [e.g., User Management Service, Data Processing API]
-
-Description: [Briefly describe its purpose, e.g., "Handles user authentication and profile management."]
-
-Technologies: [e.g., Node.js (Express), Python (Django/Flask), Java (Spring Boot), Go]
-
-Deployment: [e.g., AWS EC2, Kubernetes, Serverless (Lambda/Cloud Functions)]
-
-#### 3.2.2. [Service Name 2]
-
-Name: [e.g., Analytics Service, Notification Service]
-
-Description: [Briefly describe its purpose.]
-
-Technologies: [e.g., Python, Kafka, Redis]
-
-Deployment: [e.g., AWS ECS, Google Cloud Run]
-
-## 4. Data Stores
-
-(List and describe the databases and other persistent storage solutions used.)
-
-### 4.1. [Data Store Type 1]
-
-Name: [e.g., Primary User Database, Analytics Data Warehouse]
-
-Type: [e.g., PostgreSQL, MongoDB, Redis, S3, Firestore]
-
-Purpose: [Briefly describe what data it stores and why.]
-
-Key Schemas/Collections: [List important tables/collections, e.g., users, products, orders (no need for full schema, just names)]
-
-### 4.2. [Data Store Type 2]
-
-Name: [e.g., Cache, Message Queue]
-
-Type: [e.g., Redis, Kafka, RabbitMQ]
-
-Purpose: [Briefly describe its purpose, e.g., "Used for caching frequently accessed data" or "Inter-service communication."]
-
-## 5. External Integrations / APIs
-
-(List any third-party services or external APIs the system interacts with.)
-
-Service Name 1: [e.g., Stripe, SendGrid, Google Maps API]
-
-Purpose: [Briefly describe its function, e.g., "Payment processing."]
-
-Integration Method: [e.g., REST API, SDK]
-
-## 6. Deployment & Infrastructure
-
-Cloud Provider: [e.g., AWS, GCP, Azure, On-premise]
-
-Key Services Used: [e.g., EC2, Lambda, S3, RDS, Kubernetes, Cloud Functions, App Engine]
-
-CI/CD Pipeline: [e.g., GitHub Actions, GitLab CI, Jenkins, CircleCI]
-
-Monitoring & Logging: [e.g., Prometheus, Grafana, CloudWatch, Stackdriver, ELK Stack]
-
-## 7. Security Considerations
-
-(Highlight any critical security aspects, authentication mechanisms, or data encryption practices.)
-
-Authentication: [e.g., OAuth2, JWT, API Keys]
-
-Authorization: [e.g., RBAC, ACLs]
-
-Data Encryption: [e.g., TLS in transit, AES-256 at rest]
-
-Key Security Tools/Practices: [e.g., WAF, regular security audits]
-
-## 8. Development & Testing Environment
-
-Local Setup Instructions: [Link to CONTRIBUTING.md or brief steps]
-
-Testing Frameworks: [e.g., Jest, Pytest, JUnit]
-
-Code Quality Tools: [e.g., ESLint, Black, SonarQube]
-
-## 9. Future Considerations / Roadmap
-
-(Briefly note any known architectural debts, planned major changes, or significant future features that might impact the architecture.)
-
-[e.g., "Migrate from monolith to microservices."]
-
-[e.g., "Implement event-driven architecture for real-time updates."]
-
-## 10. Project Identification
-
-Project Name: [Insert Project Name]
-
-Repository URL: [Insert Repository URL]
-
-Primary Contact/Team: [Insert Lead Developer/Team Name]
-
-Date of Last Update: [YYYY-MM-DD]
-
-## 11. Glossary / Acronyms
-
-Define any project-specific terms or acronyms.)
-
-[Acronym]: [Full Definition]
-
-[Term]: [Explanation]
+## Key Flows
+
+### 1) Play Flow
+```mermaid
+sequenceDiagram
+  participant Web as Web
+  participant API as API
+  participant PG as Postgres
+  participant VK as Valkey
+
+  Web->>API: GET /games
+  Web->>API: POST /sessions/start
+  API->>PG: insert sessions row
+  API-->>Web: play_token
+  Web->>API: POST /analytics/event (game_start)
+  API->>PG: insert analytics_events row
+  Web->>API: POST /leaderboard/submit
+  API->>PG: insert leaderboard_submissions row
+  API->>VK: ZADD/ZSCORE/EXPIRE leaderboard keys
+```
+
+### 2) Score Submit
+- Game sends `POST /leaderboard/submit` with play token + guest header
+- API validates token + game match
+- Anti-cheat/rate checks run (score bounds, burst detection, rate limit)
+- Submission stored in Postgres (`leaderboard_submissions`)
+- Best score upserted to Valkey sorted sets (daily/weekly)
+
+### 3) Moderation
+- Admin calls `GET /admin/moderation/flagged-submissions`
+- Admin calls `POST /admin/moderation/remove-score` with `submission_id`
+- API updates Postgres (`flagged`, `flag_reason`, `removed_by_admin_id`, `removed_at`)
+- API executes Valkey `ZREM` for related leaderboard keys
+
+### 4) Popularity
+- Game events written to `analytics_events` (`event_name='game_start'`)
+- Public catalog `sort=popular` query ranks active games by 7-day `game_start` count
+
+## Data Stores
+- **Postgres (source of truth)**
+  - Core tables: `games`, `sessions`, `analytics_events`, `leaderboard_submissions`, `users`
+  - Durable moderation and analytics history
+- **Valkey (cache/index)**
+  - Leaderboard keys (`lb:game:*`, `lb:global:*`) for fast top-N reads
+  - Rate-limit / anti-burst counters (`rl:*`, `ac:*`)
+
+## Bootstrap Model
+- **Baseline migration**: `db/migrations/000_baseline.sql` creates full MVP schema in one pass
+- **Single seed**: `db/seeds/seed.sql` loads minimal MVP-ready data (admin, categories, active games)
+- **Operational model**: fresh DB bootstrap uses baseline + seed; no legacy migration chain required
+
+## Trust Boundaries
+- **Public endpoints** (`/api/games`, `/api/sessions/start`, `/api/analytics/event`, `/api/leaderboard/*`)
+  - Session token required for score submit; play token validation enforced
+  - Leaderboard submit rate limiting enforced
+- **Admin endpoints** (`/api/admin/*`)
+  - JWT bearer token required
+  - Role check must be `admin`
+- **Token validation**
+  - Play tokens and admin JWTs validated at API boundary
+- **Rate limiting**
+  - Leaderboard submit: Valkey-backed request throttling
+  - Analytics event ingestion: in-memory per-session limiter

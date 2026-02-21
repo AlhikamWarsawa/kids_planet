@@ -72,6 +72,11 @@ func Register(app *fiber.App, deps Deps) {
 	authHandler := admin.NewAuthHandler(deps.Cfg, userRepo)
 	api.Post("/auth/admin/login", authHandler.Login)
 
+	playerAuthHandler := public.NewAuthHandler(deps.Cfg, userRepo)
+	api.Post("/auth/player/register", playerAuthHandler.Register)
+	api.Post("/auth/player/login", playerAuthHandler.Login)
+	api.Post("/auth/player/logout", playerAuthHandler.Logout)
+
 	adminGroup := api.Group(
 		"/admin",
 		middleware.AuthJWT(deps.Cfg),
