@@ -16,6 +16,7 @@ const (
 	LocalPlayGameID    = "play_game_id"
 	LocalPlayExp       = "play_exp"
 	LocalPlaySessionID = "play_session_id"
+	LocalPlaySubject   = "play_sub"
 )
 
 type PlayClaims struct {
@@ -79,6 +80,7 @@ func PlayToken(cfg config.Config) fiber.Handler {
 		c.Locals(LocalPlayGameID, claims.GameID)
 		c.Locals(LocalPlayExp, exp)
 		c.Locals(LocalPlaySessionID, strings.TrimSpace(claims.SessionID))
+		c.Locals(LocalPlaySubject, strings.TrimSpace(claims.Subject))
 
 		return c.Next()
 	}

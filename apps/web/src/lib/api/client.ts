@@ -103,6 +103,9 @@ export function createApiClient(opts: ClientOptions = {}) {
         }
 
         if (json && typeof json === "object" && "data" in json) {
+            if ("pagination" in json) {
+                return json as T;
+            }
             return (json as any).data as T;
         }
 

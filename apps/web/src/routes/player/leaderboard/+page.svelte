@@ -4,7 +4,14 @@
     import { page } from "$app/stores";
 
     import { ApiError } from "$lib/api/client";
-    import { getLeaderboard, type LeaderboardViewResponse } from "$lib/api/leaderboard";
+    import { getToken as getPlayerToken } from "$lib/auth/playerAuth";
+    import { session } from "$lib/stores/session";
+    import {
+        getLeaderboard,
+        getLeaderboardSelf,
+        type LeaderboardSelfResponse,
+        type LeaderboardViewResponse
+    } from "$lib/api/leaderboard";
 
     let gameId: number | null = null;
 
@@ -15,6 +22,29 @@
     let stage: "idle" | "loading" | "ready" | "error" = "idle";
     let errorMsg: string | null = null;
     let data: LeaderboardViewResponse | null = null;
+    let selfData: LeaderboardSelfResponse | null = null;
+    let selfError: string | null = null;
+    let selfLoading = false;
+
+    $: hasSelfRank = selfData?.rank != null && selfData?.score != null;
+
+    function selfToken(): string | null {
+        const playerToken = getPlayerToken();
+        if (playerToken) return playerToken;
+
+        const snap = session.getSnapshot();
+        return snap.playToken?.trim() || null;
+    }
+
+    function emptySelf(gid: number): LeaderboardSelfResponse {
+        return {
+            game_id: gid,
+            rank: null,
+            score: null,
+            period,
+            scope,
+        };
+    }
 
     function parseGameIdFromQuery(): number | null {
         const sp = get(page).url.searchParams;
@@ -33,6 +63,16 @@
             const head = raw.slice(0, 8);
             return head ? `guest:${head}` : "guest";
         }
+        if (m.startsWith("s:")) {
+            const raw = m.slice(2);
+            const head = raw.slice(0, 8);
+            return head ? `session:${head}` : "session";
+        }
+        if (m.startsWith("p:")) {
+            const raw = m.slice(2);
+            const head = raw.slice(0, 8);
+            return head ? `player:${head}` : "player";
+        }
 
         if (m.length <= 16) return m;
         return `${m.slice(0, 10)}…${m.slice(-4)}`;
@@ -41,6 +81,8 @@
     async function load() {
         errorMsg = null;
         data = null;
+        selfError = null;
+        selfData = null;
 
         if (!gameId) {
             stage = "error";
@@ -49,12 +91,32 @@
         }
 
         stage = "loading";
+        selfLoading = true;
         try {
             data = await getLeaderboard(gameId, { period, scope, limit });
             stage = "ready";
+
+            const token = selfToken();
+            if (!token) {
+                selfData = emptySelf(gameId);
+                return;
+            }
+
+            try {
+                selfData = await getLeaderboardSelf(gameId, { period, scope }, token);
+            } catch (e) {
+                if (e instanceof ApiError && e.status === 401) {
+                    selfData = emptySelf(gameId);
+                } else {
+                    selfData = emptySelf(gameId);
+                    selfError = e instanceof ApiError ? `${e.code}: ${e.message}` : "Failed to load your rank.";
+                }
+            }
         } catch (e) {
             stage = "error";
             errorMsg = e instanceof ApiError ? `${e.code}: ${e.message}` : "Failed to load leaderboard.";
+        } finally {
+            selfLoading = false;
         }
     }
 
@@ -75,6 +137,7 @@
     }
 
     onMount(async () => {
+        session.loadFromStorage();
         gameId = parseGameIdFromQuery();
         applyFromQueryDefaults();
         await load();
@@ -136,6 +199,21 @@
             <button class="pill btn" type="button" on:click={load} disabled={stage === "loading"}>
                 {stage === "loading" ? "Loading…" : "Refresh"}
             </button>
+        </div>
+
+        <div class="selfBox" aria-live="polite">
+            {#if selfLoading}
+                <div class="selfText">Loading your rank…</div>
+            {:else if hasSelfRank}
+                <div class="selfText">
+                    Your rank: <b>#{selfData?.rank}</b> · Score: <b>{selfData?.score}</b>
+                </div>
+            {:else}
+                <div class="selfText muted">You are not ranked yet</div>
+            {/if}
+            {#if selfError}
+                <div class="selfErr">{selfError}</div>
+            {/if}
         </div>
 
         {#if stage === "loading"}
@@ -238,6 +316,31 @@
         align-items: end;
         flex-wrap: wrap;
         margin-bottom: 10px;
+    }
+
+    .selfBox {
+        border: 3px solid #666;
+        border-radius: 12px;
+        padding: 10px 12px;
+        margin-bottom: 10px;
+        background: #fff;
+    }
+
+    .selfText {
+        font-size: 13px;
+        font-weight: 900;
+        color: #222;
+    }
+
+    .selfText.muted {
+        opacity: 0.8;
+    }
+
+    .selfErr {
+        margin-top: 6px;
+        font-size: 12px;
+        font-weight: 800;
+        color: #991b1b;
     }
 
     .ctl {

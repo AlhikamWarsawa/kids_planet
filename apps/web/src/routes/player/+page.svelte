@@ -182,6 +182,7 @@
 				{:else}
 					<a class="pill" href={playerLoginHref}>Login</a>
 				{/if}
+				<a class="pill" href="/player/history">History</a>
 			</div>
 
 			<div class="right">
@@ -341,6 +342,9 @@
 	}
 
 	.left {
+		display: flex;
+		gap: 10px;
+		align-items: center;
 		flex: 0 0 auto;
 	}
 

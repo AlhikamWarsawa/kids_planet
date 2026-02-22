@@ -67,6 +67,17 @@ func (v *Valkey) ZScore(ctx context.Context, key, member string) (float64, bool,
 	return score, true, nil
 }
 
+func (v *Valkey) ZRevRank(ctx context.Context, key, member string) (int64, bool, error) {
+	rank, err := v.rdb.ZRevRank(ctx, key, member).Result()
+	if err == redis.Nil {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, err
+	}
+	return rank, true, nil
+}
+
 func (v *Valkey) ZAdd(ctx context.Context, key, member string, score float64) error {
 	return v.rdb.ZAdd(ctx, key, redis.Z{
 		Score:  score,

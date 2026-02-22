@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/ZygmaCore/kids_planet/services/api/internal/clients"
 	"github.com/ZygmaCore/kids_planet/services/api/internal/models"
 	"github.com/ZygmaCore/kids_planet/services/api/internal/repos"
@@ -34,6 +36,7 @@ func NewLeaderboardService(valkey *clients.Valkey, submissionRepo *repos.Submiss
 func (s *LeaderboardService) SubmitScore(
 	ctx context.Context,
 	tokenGameID int64,
+	tokenPlayerID string,
 	guestID string,
 	req models.SubmitScoreRequest,
 	sessionID string,
@@ -64,6 +67,7 @@ func (s *LeaderboardService) SubmitScore(
 		return nil, &e
 	}
 
+	tokenPlayerID = normalizePlayerID(tokenPlayerID)
 	sessionID = strings.TrimSpace(sessionID)
 
 	flagReasons := make([]string, 0, 2)
@@ -85,7 +89,11 @@ func (s *LeaderboardService) SubmitScore(
 	flagged := len(flagReasons) > 0
 	flagReason := strings.Join(flagReasons, ",")
 
-	member := "g:" + guestID
+	member := resolveSubmissionMember(tokenPlayerID, sessionID, guestID)
+	if member == "" {
+		e := utils.ErrUnauthorized()
+		return nil, &e
+	}
 	now := time.Now().UTC()
 
 	sub := &repos.LeaderboardSubmission{
@@ -135,24 +143,9 @@ func (s *LeaderboardService) GetTop(
 	scope string,
 	limit int,
 ) ([]models.LeaderboardItem, error) {
-	if gameID <= 0 {
-		return nil, utils.ErrBadRequest("game_id must be an integer >= 1")
-	}
-
-	period = strings.ToLower(strings.TrimSpace(period))
-	if period == "" {
-		period = "daily"
-	}
-	if period != "daily" && period != "weekly" {
-		return nil, utils.ErrBadRequest("period must be 'daily' or 'weekly'")
-	}
-
-	scope = strings.ToLower(strings.TrimSpace(scope))
-	if scope == "" {
-		scope = "game"
-	}
-	if scope != "game" && scope != "global" {
-		return nil, utils.ErrBadRequest("scope must be 'game' or 'global'")
+	_, _, key, err := resolveLeaderboardKey(gameID, period, scope, time.Now().UTC())
+	if err != nil {
+		return nil, err
 	}
 
 	if limit <= 0 {
@@ -160,23 +153,6 @@ func (s *LeaderboardService) GetTop(
 	}
 	if limit > 100 {
 		return nil, utils.ErrBadRequest("limit must be an integer between 1 and 100")
-	}
-
-	now := time.Now().UTC()
-
-	var key string
-	if scope == "game" {
-		if period == "daily" {
-			key = clients.KeyGameDaily(gameID, now)
-		} else {
-			key = clients.KeyGameWeekly(gameID, now)
-		}
-	} else {
-		if period == "daily" {
-			key = clients.KeyGlobalDaily(now)
-		} else {
-			key = clients.KeyGlobalWeekly(now)
-		}
 	}
 
 	rows, err := s.valkey.ZRevRangeWithScores(ctx, key, 0, int64(limit-1))
@@ -193,6 +169,54 @@ func (s *LeaderboardService) GetTop(
 	}
 
 	return items, nil
+}
+
+func (s *LeaderboardService) GetSelf(
+	ctx context.Context,
+	gameID int64,
+	period string,
+	scope string,
+	member string,
+) (*models.LeaderboardSelfDTO, error) {
+	member = strings.TrimSpace(member)
+	if member == "" {
+		return nil, utils.ErrUnauthorized()
+	}
+
+	period, scope, key, err := resolveLeaderboardKey(gameID, period, scope, time.Now().UTC())
+	if err != nil {
+		return nil, err
+	}
+
+	rank, ranked, err := s.valkey.ZRevRank(ctx, key, member)
+	if err != nil {
+		return nil, utils.ErrInternal()
+	}
+
+	score, scoreFound, err := s.valkey.ZScore(ctx, key, member)
+	if err != nil {
+		return nil, utils.ErrInternal()
+	}
+	if !ranked || !scoreFound {
+		return &models.LeaderboardSelfDTO{
+			GameID: gameID,
+			Rank:   nil,
+			Score:  nil,
+			Period: period,
+			Scope:  scope,
+		}, nil
+	}
+
+	rankOneBased := rank + 1
+	scoreInt := int64(score)
+
+	return &models.LeaderboardSelfDTO{
+		GameID: gameID,
+		Rank:   &rankOneBased,
+		Score:  &scoreInt,
+		Period: period,
+		Scope:  scope,
+	}, nil
 }
 
 func (s *LeaderboardService) RemoveSubmissionFromLeaderboards(
@@ -213,7 +237,7 @@ func (s *LeaderboardService) RemoveSubmissionFromLeaderboards(
 	if member == "" && submission.SessionID.Valid {
 		sessionID := strings.TrimSpace(submission.SessionID.String)
 		if sessionID != "" {
-			member = "g:" + sessionID
+			member = "s:" + sessionID
 		}
 	}
 	if member == "" {
@@ -274,6 +298,77 @@ func (s *LeaderboardService) upsertIfHigher(
 		return 0, &e
 	}
 	return best, nil
+}
+
+func resolveLeaderboardKey(
+	gameID int64,
+	period string,
+	scope string,
+	now time.Time,
+) (normalizedPeriod string, normalizedScope string, key string, err error) {
+	if gameID <= 0 {
+		return "", "", "", utils.ErrBadRequest("game_id must be an integer >= 1")
+	}
+
+	normalizedPeriod = strings.ToLower(strings.TrimSpace(period))
+	if normalizedPeriod == "" {
+		normalizedPeriod = "daily"
+	}
+	if normalizedPeriod != "daily" && normalizedPeriod != "weekly" {
+		return "", "", "", utils.ErrBadRequest("period must be 'daily' or 'weekly'")
+	}
+
+	normalizedScope = strings.ToLower(strings.TrimSpace(scope))
+	if normalizedScope == "" {
+		normalizedScope = "game"
+	}
+	if normalizedScope != "game" && normalizedScope != "global" {
+		return "", "", "", utils.ErrBadRequest("scope must be 'game' or 'global'")
+	}
+
+	now = now.UTC()
+
+	if normalizedScope == "game" {
+		if normalizedPeriod == "daily" {
+			return normalizedPeriod, normalizedScope, clients.KeyGameDaily(gameID, now), nil
+		}
+		return normalizedPeriod, normalizedScope, clients.KeyGameWeekly(gameID, now), nil
+	}
+
+	if normalizedPeriod == "daily" {
+		return normalizedPeriod, normalizedScope, clients.KeyGlobalDaily(now), nil
+	}
+	return normalizedPeriod, normalizedScope, clients.KeyGlobalWeekly(now), nil
+}
+
+func resolveSubmissionMember(playerID string, sessionID string, guestID string) string {
+	playerID = normalizePlayerID(playerID)
+	if playerID != "" {
+		return "p:" + playerID
+	}
+
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID != "" {
+		return "s:" + sessionID
+	}
+
+	guestID = strings.TrimSpace(guestID)
+	if guestID != "" {
+		return "g:" + guestID
+	}
+
+	return ""
+}
+
+func normalizePlayerID(playerID string) string {
+	playerID = strings.TrimSpace(playerID)
+	if playerID == "" {
+		return ""
+	}
+	if _, err := uuid.Parse(playerID); err != nil {
+		return ""
+	}
+	return playerID
 }
 
 func nullString(v string) sql.NullString {

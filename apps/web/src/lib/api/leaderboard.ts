@@ -13,6 +13,14 @@ export type LeaderboardViewResponse = {
     items: LeaderboardItem[];
 };
 
+export type LeaderboardSelfResponse = {
+    game_id: number;
+    rank: number | null;
+    score: number | null;
+    period: string;
+    scope: string;
+};
+
 export type GetLeaderboardOpts = {
     period?: "daily" | "weekly";
     scope?: "game" | "global";
@@ -30,4 +38,22 @@ export async function getLeaderboard(gameId: number, opts: GetLeaderboardOpts = 
     const path = q ? `/leaderboard/${gameId}?${q}` : `/leaderboard/${gameId}`;
 
     return api.get<LeaderboardViewResponse>(path);
+}
+
+export async function getLeaderboardSelf(
+    gameId: number,
+    opts: GetLeaderboardOpts = {},
+    token?: string | null,
+) {
+    const qs = new URLSearchParams();
+
+    if (opts.period) qs.set("period", opts.period);
+    if (opts.scope) qs.set("scope", opts.scope);
+
+    const q = qs.toString();
+    const path = q ? `/leaderboard/${gameId}/self?${q}` : `/leaderboard/${gameId}/self`;
+
+    return api.get<LeaderboardSelfResponse>(path, {
+        token: token ?? undefined,
+    });
 }

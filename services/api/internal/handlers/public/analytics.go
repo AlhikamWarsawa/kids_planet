@@ -9,6 +9,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 
 	"github.com/ZygmaCore/kids_planet/services/api/internal/config"
 	"github.com/ZygmaCore/kids_planet/services/api/internal/models"
@@ -72,10 +73,10 @@ func (h *AnalyticsHandler) TrackEvent(c *fiber.Ctx) error {
 		return utils.Fail(c, utils.ErrRateLimited("rate limit exceeded"))
 	}
 
-	var dataStr *string
-	if len(req.Data) > 0 {
-		v := string(req.Data)
-		dataStr = &v
+	playerID := getPlayerIDFromClaims(claims)
+	dataStr, err := composeAnalyticsData(req.Data, playerID)
+	if err != nil {
+		return utils.Fail(c, utils.ErrBadRequest("data must be valid json"))
 	}
 
 	if err := h.repo.InsertAnalyticsEvent(
@@ -91,6 +92,69 @@ func (h *AnalyticsHandler) TrackEvent(c *fiber.Ctx) error {
 	}
 
 	return utils.Success(c, models.AnalyticsEventResponse{Ok: true})
+}
+
+func getPlayerIDFromClaims(claims *analyticsPlayClaims) string {
+	if claims == nil {
+		return ""
+	}
+
+	playerID := strings.TrimSpace(claims.Subject)
+	if playerID == "" {
+		return ""
+	}
+	if _, err := uuid.Parse(playerID); err != nil {
+		return ""
+	}
+	return playerID
+}
+
+func composeAnalyticsData(raw json.RawMessage, playerID string) (*string, error) {
+	playerID = strings.TrimSpace(playerID)
+	hasRaw := len(raw) > 0
+
+	if !hasRaw && playerID == "" {
+		return nil, nil
+	}
+
+	if !hasRaw && playerID != "" {
+		encoded, err := json.Marshal(map[string]string{"player_id": playerID})
+		if err != nil {
+			return nil, err
+		}
+		v := string(encoded)
+		return &v, nil
+	}
+
+	if playerID == "" {
+		v := string(raw)
+		return &v, nil
+	}
+
+	var parsed any
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		return nil, err
+	}
+
+	if obj, ok := parsed.(map[string]any); ok {
+		obj["player_id"] = playerID
+		encoded, err := json.Marshal(obj)
+		if err != nil {
+			return nil, err
+		}
+		v := string(encoded)
+		return &v, nil
+	}
+
+	encoded, err := json.Marshal(map[string]any{
+		"player_id": playerID,
+		"payload":   parsed,
+	})
+	if err != nil {
+		return nil, err
+	}
+	v := string(encoded)
+	return &v, nil
 }
 
 type analyticsRateLimiter struct {

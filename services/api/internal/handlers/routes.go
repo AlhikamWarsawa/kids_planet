@@ -33,6 +33,7 @@ func Register(app *fiber.App, deps Deps) {
 	analyticsRepo := repos.NewAnalyticsRepo(deps.DB)
 	dashboardRepo := repos.NewDashboardRepo(deps.DB)
 	sessionRepo := repos.NewSessionRepo(deps.DB)
+	playerHistoryRepo := repos.NewPlayerHistoryRepo(deps.DB)
 
 	ageCategoryRepo := repos.NewAgeCategoryRepo(deps.DB)
 	educationCategoryRepo := repos.NewEducationCategoryRepo(deps.DB)
@@ -49,19 +50,21 @@ func Register(app *fiber.App, deps Deps) {
 
 	categorySvc := services.NewCategoryService(ageCategoryRepo, educationCategoryRepo)
 	dashboardSvc := services.NewDashboardService(dashboardRepo)
+	historySvc := services.NewHistoryService(playerHistoryRepo)
 
 	gamesHandler := public.NewGamesHandler(gameSvc)
 	api.Get("/games", gamesHandler.List)
 	api.Get("/games/:id", gamesHandler.Get)
 
-	sessionsHandler := public.NewSessionsHandler(sessionSvc)
+	sessionsHandler := public.NewSessionsHandler(deps.Cfg, sessionSvc)
 	api.Post("/sessions/start", sessionsHandler.Start)
 
 	analyticsHandler := public.NewAnalyticsHandler(deps.Cfg, analyticsRepo)
 	api.Post("/analytics/event", analyticsHandler.TrackEvent)
 
-	leaderboardHandler := public.NewLeaderboardHandler(leaderboardSvc)
+	leaderboardHandler := public.NewLeaderboardHandler(deps.Cfg, leaderboardSvc)
 	api.Get("/leaderboard/:game_id<int>", leaderboardHandler.GetTop)
+	api.Get("/leaderboard/:game_id<int>/self", leaderboardHandler.GetSelf)
 	api.Post(
 		"/leaderboard/submit",
 		middleware.PlayToken(deps.Cfg),
@@ -76,6 +79,9 @@ func Register(app *fiber.App, deps Deps) {
 	api.Post("/auth/player/register", playerAuthHandler.Register)
 	api.Post("/auth/player/login", playerAuthHandler.Login)
 	api.Post("/auth/player/logout", playerAuthHandler.Logout)
+
+	historyHandler := public.NewHistoryHandler(historySvc)
+	api.Get("/player/history", middleware.AuthPlayerJWT(deps.Cfg), historyHandler.List)
 
 	adminGroup := api.Group(
 		"/admin",

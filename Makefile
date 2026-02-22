@@ -1,7 +1,7 @@
 g:
 	git pull
 	git add .
-	git commit -m "Player Auth + Add MVP Feature"
+	git commit -m "History + Rank"
 	git push
 
 dev:

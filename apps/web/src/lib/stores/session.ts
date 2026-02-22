@@ -1,6 +1,7 @@
 import { writable, derived, get } from "svelte/store";
 import { browser } from "$app/environment";
 import { api, ApiError } from "$lib/api/client";
+import { getToken as getPlayerToken } from "$lib/auth/playerAuth";
 
 const STORAGE_KEY = "kidsplanet_play_token";
 
@@ -85,9 +86,24 @@ function createSessionStore() {
 
         update((s) => ({ ...s, loading: true }));
         try {
-            const data = await api.post<StartSessionResponse>("/sessions/start", {
-                game_id: gid,
-            });
+            const playerToken = getPlayerToken();
+            let data: StartSessionResponse;
+            try {
+                data = await api.post<StartSessionResponse>(
+                    "/sessions/start",
+                    { game_id: gid },
+                    { token: playerToken ?? undefined },
+                );
+            } catch (e) {
+                if (playerToken && e instanceof ApiError && e.status === 401) {
+                    // Fallback to guest session when player token is stale/invalid.
+                    data = await api.post<StartSessionResponse>("/sessions/start", {
+                        game_id: gid,
+                    });
+                } else {
+                    throw e;
+                }
+            }
 
             const token = (data.play_token ?? "").trim();
             if (!token) {

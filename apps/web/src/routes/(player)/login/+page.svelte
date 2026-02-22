@@ -13,6 +13,10 @@
 
 	$: nextUrl = $page.url.searchParams.get('next') || '/';
 
+	function normalizePin(value: string): string {
+		return value.replace(/\D/g, '').slice(0, 6);
+	}
+
 	function validate(): string | null {
 		const normalizedEmail = email.trim().toLowerCase();
 		if (!normalizedEmail || !normalizedEmail.includes('@')) {
@@ -34,7 +38,7 @@
 		loadingMode = mode;
 		errorMsg = null;
 		const normalizedEmail = email.trim().toLowerCase();
-		const normalizedPin = pin.trim();
+		const normalizedPin = normalizePin(pin.trim());
 
 		try {
 			if (mode === 'login') {
@@ -94,12 +98,13 @@
 				<input
 					class="input"
 					bind:value={pin}
+					on:input={(event) => {
+						pin = normalizePin((event.currentTarget as HTMLInputElement).value);
+					}}
 					type="password"
 					inputmode="numeric"
 					autocomplete="one-time-code"
-					minlength="6"
 					maxlength="6"
-					pattern="[0-9]{6}"
 					placeholder="123456"
 					disabled={loading}
 					required

@@ -407,6 +407,81 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorResponse" }
 
+  /leaderboard/{game_id}/self:
+    get:
+      tags: [Leaderboard]
+      summary: Read self rank & score
+      description: |
+        Returns caller's own rank/score in current leaderboard window.
+        Caller can be:
+        - logged-in player (player JWT)
+        - guest/play session (play_token)
+      security:
+        - bearerAuth: []
+        - playTokenAuth: []
+      parameters:
+        - in: path
+          name: game_id
+          required: true
+          schema: { type: integer, format: int64, minimum: 1 }
+        - in: query
+          name: period
+          required: false
+          schema:
+            type: string
+            enum: [daily, weekly]
+            default: daily
+        - in: query
+          name: scope
+          required: false
+          schema:
+            type: string
+            enum: [game, global]
+            default: game
+      responses:
+        "200":
+          description: Self rank response
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessResponse"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/LeaderboardSelfResponse" }
+              examples:
+                ranked:
+                  value:
+                    data:
+                      game_id: 1
+                      rank: 5
+                      score: 1200
+                      period: daily
+                      scope: game
+                not_ranked:
+                  value:
+                    data:
+                      game_id: 1
+                      rank: null
+                      score: null
+                      period: daily
+                      scope: game
+        "400":
+          description: Invalid query or params
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "401":
+          description: Missing/invalid token
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "403":
+          description: Forbidden token/game mismatch
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
   /achievement/unlock:
     post:
       tags: [Achievements]
@@ -1458,6 +1533,24 @@ components:
         items:
           type: array
           items: { $ref: "#/components/schemas/LeaderboardItem" }
+
+    LeaderboardSelfResponse:
+      type: object
+      required: [game_id, period, scope]
+      properties:
+        game_id: { type: integer, format: int64, example: 1 }
+        rank:
+          type: integer
+          format: int64
+          nullable: true
+          example: 5
+        score:
+          type: integer
+          format: int64
+          nullable: true
+          example: 1200
+        period: { type: string, enum: [daily, weekly], example: daily }
+        scope: { type: string, enum: [game, global], example: game }
 
     LeaderboardEntry:
       type: object

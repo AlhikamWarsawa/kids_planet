@@ -90,6 +90,16 @@
             const head = raw.slice(0, 8);
             return head ? `guest:${head}` : "guest";
         }
+        if (m.startsWith("s:")) {
+            const raw = m.slice(2);
+            const head = raw.slice(0, 8);
+            return head ? `session:${head}` : "session";
+        }
+        if (m.startsWith("p:")) {
+            const raw = m.slice(2);
+            const head = raw.slice(0, 8);
+            return head ? `player:${head}` : "player";
+        }
 
         if (m.length <= 16) return m;
         return `${m.slice(0, 10)}…${m.slice(-4)}`;
