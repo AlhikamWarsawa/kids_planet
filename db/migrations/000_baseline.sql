@@ -223,3 +223,44 @@ CREATE INDEX idx_sessions_started_at
 
 CREATE INDEX idx_sessions_game_id_started_at
     ON sessions (game_id, started_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_sessions_started_at
+    ON sessions (started_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_sessions_game_id_started_at
+    ON sessions (game_id, started_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_analytics_events_event_name_created_at_game_id
+    ON analytics_events (event_name, created_at DESC, game_id);
+
+CREATE INDEX IF NOT EXISTS idx_analytics_events_session_id
+    ON analytics_events (session_id);
+
+CREATE INDEX IF NOT EXISTS idx_lb_game_score
+    ON leaderboard_submissions (game_id, score DESC);
+
+CREATE INDEX IF NOT EXISTS idx_lb_flagged
+    ON leaderboard_submissions (flagged)
+    WHERE flagged = TRUE;
+
+DO
+$$
+    BEGIN
+        IF EXISTS (
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'leaderboard_submissions'
+              AND column_name = 'removed_at'
+        ) THEN
+            EXECUTE 'CREATE INDEX IF NOT EXISTS idx_lb_removed_at ON leaderboard_submissions (removed_at) WHERE removed_at IS NOT NULL';
+        END IF;
+    END
+$$;
+
+CREATE INDEX IF NOT EXISTS idx_games_active
+    ON games (status)
+    WHERE status = 'active';
+
+CREATE INDEX IF NOT EXISTS idx_users_role
+    ON users (role);

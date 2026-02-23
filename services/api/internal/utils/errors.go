@@ -3,18 +3,23 @@ package utils
 import (
 	"fmt"
 	"net/http"
+	"strings"
 )
 
 const (
-	CodeBadRequest       = "BAD_REQUEST"
-	CodeUnauthorized     = "UNAUTHORIZED"
-	CodeForbidden        = "FORBIDDEN"
-	CodeNotFound         = "NOT_FOUND"
-	CodeInternal         = "INTERNAL_ERROR"
-	CodeRateLimited      = "RATE_LIMITED"
-	CodeInvalidZip       = "INVALID_ZIP"
-	CodeZipTooLarge      = "ZIP_TOO_LARGE"
-	CodeMissingIndexHTML = "MISSING_INDEX_HTML"
+	CodeBadRequest              = "BAD_REQUEST"
+	CodeUnauthorized            = "UNAUTHORIZED"
+	CodeForbidden               = "FORBIDDEN"
+	CodeNotFound                = "NOT_FOUND"
+	CodeInternal                = "INTERNAL_ERROR"
+	CodeRateLimited             = "RATE_LIMITED"
+	CodeInvalidZip              = "INVALID_ZIP"
+	CodeZipTooLarge             = "ZIP_TOO_LARGE"
+	CodeInvalidZipPath          = "INVALID_ZIP_PATH"
+	CodeZipTooLargeUncompressed = "ZIP_TOO_LARGE_UNCOMPRESSED"
+	CodeZipTooManyFiles         = "ZIP_TOO_MANY_FILES"
+	CodeInvalidFileType         = "INVALID_FILE_TYPE"
+	CodeMissingIndexHTML        = "MISSING_INDEX_HTML"
 )
 
 type AppError struct {
@@ -104,6 +109,53 @@ func ErrZipTooLarge(maxBytes int64) AppError {
 		Code:       CodeZipTooLarge,
 		Message:    msg,
 		HTTPStatus: http.StatusRequestEntityTooLarge,
+	}
+}
+
+func ErrInvalidZipPath(msg string) AppError {
+	if msg == "" {
+		msg = "zip entry path is invalid"
+	}
+	return AppError{
+		Code:       CodeInvalidZipPath,
+		Message:    msg,
+		HTTPStatus: http.StatusUnprocessableEntity,
+	}
+}
+
+func ErrZipTooLargeUncompressed(maxBytes int64) AppError {
+	msg := "zip too large after extraction"
+	if maxBytes > 0 {
+		msg = fmt.Sprintf("zip too large after extraction (max %d bytes)", maxBytes)
+	}
+	return AppError{
+		Code:       CodeZipTooLargeUncompressed,
+		Message:    msg,
+		HTTPStatus: http.StatusBadRequest,
+	}
+}
+
+func ErrZipTooManyFiles(maxFiles int) AppError {
+	msg := "zip contains too many files"
+	if maxFiles > 0 {
+		msg = fmt.Sprintf("zip contains too many files (max %d)", maxFiles)
+	}
+	return AppError{
+		Code:       CodeZipTooManyFiles,
+		Message:    msg,
+		HTTPStatus: http.StatusBadRequest,
+	}
+}
+
+func ErrInvalidFileType(ext string) AppError {
+	ext = strings.TrimSpace(strings.ToLower(ext))
+	if ext == "" {
+		ext = "unknown"
+	}
+	return AppError{
+		Code:       CodeInvalidFileType,
+		Message:    fmt.Sprintf("invalid file type: %s", ext),
+		HTTPStatus: http.StatusUnprocessableEntity,
 	}
 }
 

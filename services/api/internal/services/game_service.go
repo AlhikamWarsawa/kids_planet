@@ -1,6 +1,7 @@
 package services
 
 import (
+	"archive/zip"
 	"context"
 	"crypto/rand"
 	"database/sql"
@@ -503,6 +504,36 @@ type UploadZipDTO struct {
 	GameURL   string `json:"game_url"`
 }
 
+const (
+	maxZipUncompressedBytes int64 = 200 * 1024 * 1024
+	maxZipFileCount               = 2000
+)
+
+var allowedZipFileExtensions = map[string]struct{}{
+	".html": {},
+	".js":   {},
+	".css":  {},
+	".json": {},
+	".png":  {},
+	".jpg":  {},
+	".jpeg": {},
+	".gif":  {},
+	".ico":  {},
+	".svg":  {},
+	".wasm": {},
+	".mp3":  {},
+	".ogg":  {},
+	".txt":  {},
+	".bin":  {},
+	".data": {},
+}
+
+type zipExtractEntry struct {
+	file    *zip.File
+	relPath string
+	isDir   bool
+}
+
 func (s *GameService) UploadAdminGameZip(ctx context.Context, gameID int64, filename string, file io.ReadSeeker, size int64, contentType string) (*UploadZipDTO, error) {
 	if gameID < 1 {
 		return nil, utils.ErrBadRequest("id must be an integer >= 1")
@@ -589,11 +620,10 @@ func (s *GameService) UploadAdminGameZip(ctx context.Context, gameID int64, file
 	}
 
 	extractDir := filepath.Join(workDir, "extracted")
-	extracted, err := utils.SafeUnzip(zipFile, info.Size(), extractDir)
+	extracted, err := extractAndValidateZip(zipFile, info.Size(), extractDir)
 	if err != nil {
-		var zipErr utils.ZipInputError
-		if errors.As(err, &zipErr) {
-			return nil, utils.ErrInvalidZip(zipErr.Error())
+		if appErr, ok := err.(utils.AppError); ok {
+			return nil, appErr
 		}
 		return nil, utils.ErrInternal()
 	}
@@ -646,6 +676,191 @@ func hasRootIndex(paths []string) bool {
 		}
 	}
 	return false
+}
+
+func extractAndValidateZip(zipFile *os.File, size int64, dest string) ([]string, error) {
+	if zipFile == nil {
+		return nil, utils.ErrInvalidZip("invalid zip file")
+	}
+	if size <= 0 {
+		return nil, utils.ErrInvalidZip("invalid zip file")
+	}
+	if strings.TrimSpace(dest) == "" {
+		return nil, utils.ErrInternal()
+	}
+
+	if err := os.MkdirAll(dest, 0o755); err != nil {
+		return nil, err
+	}
+
+	zr, err := zip.NewReader(zipFile, size)
+	if err != nil {
+		return nil, utils.ErrInvalidZip("invalid zip file")
+	}
+
+	rootAbs, err := filepath.Abs(dest)
+	if err != nil {
+		return nil, err
+	}
+
+	entries := make([]zipExtractEntry, 0, len(zr.File))
+	fileCount := 0
+	var uncompressedTotal int64
+
+	for _, entry := range zr.File {
+		relPath, err := sanitizeZipEntryPath(entry.Name)
+		if err != nil {
+			return nil, err
+		}
+
+		target := filepath.Join(rootAbs, filepath.FromSlash(relPath))
+		if !isWithinRoot(rootAbs, target) {
+			return nil, utils.ErrInvalidZipPath(fmt.Sprintf("zip entry %q is outside destination", entry.Name))
+		}
+
+		if entry.Mode()&os.ModeSymlink != 0 {
+			return nil, utils.ErrInvalidZipPath(fmt.Sprintf("zip entry %q is a symlink", entry.Name))
+		}
+
+		if entry.FileInfo().IsDir() {
+			entries = append(entries, zipExtractEntry{file: entry, relPath: relPath, isDir: true})
+			continue
+		}
+
+		fileCount++
+		if fileCount > maxZipFileCount {
+			return nil, utils.ErrZipTooManyFiles(maxZipFileCount)
+		}
+
+		ext := strings.ToLower(filepath.Ext(relPath))
+		if _, ok := allowedZipFileExtensions[ext]; !ok {
+			return nil, utils.ErrInvalidFileType(ext)
+		}
+
+		entryUncompressed := int64(entry.UncompressedSize64)
+		if entryUncompressed < 0 || entry.UncompressedSize64 > uint64(maxZipUncompressedBytes) {
+			return nil, utils.ErrZipTooLargeUncompressed(maxZipUncompressedBytes)
+		}
+		if uncompressedTotal > maxZipUncompressedBytes-entryUncompressed {
+			return nil, utils.ErrZipTooLargeUncompressed(maxZipUncompressedBytes)
+		}
+		uncompressedTotal += entryUncompressed
+
+		entries = append(entries, zipExtractEntry{file: entry, relPath: relPath})
+	}
+
+	extracted := make([]string, 0, fileCount)
+	var extractedBytes int64
+
+	for _, entry := range entries {
+		target := filepath.Join(rootAbs, filepath.FromSlash(entry.relPath))
+		if !isWithinRoot(rootAbs, target) {
+			return nil, utils.ErrInvalidZipPath(fmt.Sprintf("zip entry %q is outside destination", entry.relPath))
+		}
+
+		if entry.isDir {
+			if err := os.MkdirAll(target, 0o755); err != nil {
+				return nil, err
+			}
+			continue
+		}
+
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return nil, err
+		}
+
+		rc, err := entry.file.Open()
+		if err != nil {
+			return nil, utils.ErrInvalidZip("invalid zip file")
+		}
+
+		out, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+		if err != nil {
+			_ = rc.Close()
+			return nil, err
+		}
+
+		remaining := maxZipUncompressedBytes - extractedBytes
+		if remaining < 0 {
+			_ = out.Close()
+			_ = rc.Close()
+			return nil, utils.ErrZipTooLargeUncompressed(maxZipUncompressedBytes)
+		}
+
+		limited := io.LimitReader(rc, remaining+1)
+		written, copyErr := io.Copy(out, limited)
+		closeOutErr := out.Close()
+		closeRCErr := rc.Close()
+
+		if copyErr != nil {
+			return nil, utils.ErrInvalidZip("invalid zip file")
+		}
+		if closeOutErr != nil {
+			return nil, closeOutErr
+		}
+		if closeRCErr != nil {
+			return nil, closeRCErr
+		}
+
+		extractedBytes += written
+		if written > remaining || extractedBytes > maxZipUncompressedBytes {
+			return nil, utils.ErrZipTooLargeUncompressed(maxZipUncompressedBytes)
+		}
+
+		extracted = append(extracted, entry.relPath)
+	}
+
+	return extracted, nil
+}
+
+func sanitizeZipEntryPath(name string) (string, error) {
+	raw := strings.TrimSpace(strings.ReplaceAll(name, "\\", "/"))
+	if raw == "" {
+		return "", utils.ErrInvalidZipPath("zip entry has empty path")
+	}
+	if strings.ContainsRune(raw, '\x00') {
+		return "", utils.ErrInvalidZipPath(fmt.Sprintf("zip entry %q has invalid path", name))
+	}
+	if strings.Contains(raw, "..") {
+		return "", utils.ErrInvalidZipPath(fmt.Sprintf("zip entry %q contains invalid path segment", name))
+	}
+	if strings.HasPrefix(raw, "/") || strings.HasPrefix(raw, "\\") || path.IsAbs(raw) {
+		return "", utils.ErrInvalidZipPath(fmt.Sprintf("zip entry %q is absolute", name))
+	}
+	if len(raw) >= 2 && raw[1] == ':' {
+		return "", utils.ErrInvalidZipPath(fmt.Sprintf("zip entry %q is absolute", name))
+	}
+	if strings.HasPrefix(raw, "//") || strings.HasPrefix(raw, "\\\\") {
+		return "", utils.ErrInvalidZipPath(fmt.Sprintf("zip entry %q is absolute", name))
+	}
+
+	clean := path.Clean(raw)
+	clean = strings.TrimPrefix(clean, "./")
+	if clean == "." || clean == "" {
+		return "", utils.ErrInvalidZipPath(fmt.Sprintf("zip entry %q has invalid path", name))
+	}
+	if strings.Contains(clean, "..") {
+		return "", utils.ErrInvalidZipPath(fmt.Sprintf("zip entry %q contains invalid path segment", name))
+	}
+	if strings.HasPrefix(clean, "/") || strings.HasPrefix(clean, "\\") || path.IsAbs(clean) {
+		return "", utils.ErrInvalidZipPath(fmt.Sprintf("zip entry %q is absolute", name))
+	}
+
+	return clean, nil
+}
+
+func isWithinRoot(root, target string) bool {
+	root = filepath.Clean(root)
+	target = filepath.Clean(target)
+	if root == target {
+		return true
+	}
+
+	sep := string(os.PathSeparator)
+	if !strings.HasSuffix(root, sep) {
+		root += sep
+	}
+	return strings.HasPrefix(target, root)
 }
 
 func (s *GameService) uploadExtractedGameFiles(ctx context.Context, gameID int64, root string, files []string) error {

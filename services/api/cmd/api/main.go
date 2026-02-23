@@ -42,21 +42,17 @@ func main() {
 	}
 	log.Println("minio connected")
 
-	bodyLimit := int(cfg.Upload.ZipMaxBytes)
-	if bodyLimit < 4*1024*1024 {
-		bodyLimit = 4 * 1024 * 1024
-	}
-	bodyLimit = bodyLimit + (1 * 1024 * 1024)
-
 	app := fiber.New(fiber.Config{
 		AppName:      "game-portal-api",
 		ReadTimeout:  20 * time.Second,
 		WriteTimeout: 20 * time.Second,
-		BodyLimit:    bodyLimit,
+		BodyLimit:    middleware.MaxRequestBodyBytes,
 	})
 
 	app.Use(middleware.Recover())
 	app.Use(middleware.Logging())
+	app.Use(middleware.CORS())
+	app.Use(middleware.SizeLimit())
 
 	handlers.Register(app, handlers.Deps{
 		Cfg:    cfg,

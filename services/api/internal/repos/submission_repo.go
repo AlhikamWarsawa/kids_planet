@@ -89,6 +89,22 @@ func (r *SubmissionRepo) ListFlagged(ctx context.Context, limit int) ([]FlaggedS
 	}
 
 	const q = `
+WITH flagged_submissions AS (
+  SELECT
+    id,
+    game_id,
+    player_id,
+    score,
+    flagged,
+    flag_reason,
+    session_id,
+    created_at
+  FROM leaderboard_submissions
+  WHERE flagged = TRUE
+    AND removed_at IS NULL
+  ORDER BY created_at DESC
+  LIMIT $1
+)
 SELECT
   s.id,
   s.game_id,
@@ -98,12 +114,10 @@ SELECT
   s.flag_reason,
   s.session_id,
   s.created_at
-FROM leaderboard_submissions s
+FROM flagged_submissions s
 LEFT JOIN players p ON p.id = s.player_id
-WHERE s.flagged = TRUE
-  AND s.removed_at IS NULL
 ORDER BY s.created_at DESC
-LIMIT $1;
+;
 `
 	rows, err := r.db.QueryContext(ctx, q, limit)
 	if err != nil {

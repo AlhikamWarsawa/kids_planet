@@ -24,7 +24,7 @@ func (r *DashboardRepo) CountSessionsTodayUTC(ctx context.Context) (int, error) 
 	const q = `
 SELECT COUNT(*)
 FROM sessions
-WHERE started_at >= date_trunc('day', now() AT TIME ZONE 'utc');
+WHERE started_at >= ((now() AT TIME ZONE 'utc')::date);
 `
 	var total int
 	if err := r.db.QueryRowContext(ctx, q).Scan(&total); err != nil {
@@ -41,8 +41,9 @@ func (r *DashboardRepo) ListTopGames(ctx context.Context, limit int) ([]TopGameR
 	const q = `
 SELECT s.game_id, g.title, COUNT(*) AS plays
 FROM sessions s
-JOIN games g ON g.id = s.game_id
-WHERE g.status = 'active'
+JOIN games g
+  ON g.id = s.game_id
+ AND g.status = 'active'
 GROUP BY s.game_id, g.title
 ORDER BY plays DESC, s.game_id ASC
 LIMIT $1;

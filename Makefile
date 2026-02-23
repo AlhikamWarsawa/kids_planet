@@ -1,7 +1,7 @@
 g:
 	git pull
 	git add .
-	git commit -m "History + Rank"
+	git commit -m "Security Pass + Performance"
 	git push
 
 dev:

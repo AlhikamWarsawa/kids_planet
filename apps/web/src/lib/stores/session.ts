@@ -96,7 +96,6 @@ function createSessionStore() {
                 );
             } catch (e) {
                 if (playerToken && e instanceof ApiError && e.status === 401) {
-                    // Fallback to guest session when player token is stale/invalid.
                     data = await api.post<StartSessionResponse>("/sessions/start", {
                         game_id: gid,
                     });
