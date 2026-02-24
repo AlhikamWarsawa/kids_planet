@@ -4,18 +4,29 @@ export type ApiErrorBody = {
     error?: {
         code?: string;
         message?: string;
+        request_id?: string;
     };
 };
 
 export class ApiError extends Error {
     status: number;
     code: string;
+    requestId: string | null;
+    body: unknown;
 
-    constructor(status: number, code: string, message: string) {
+    constructor(
+        status: number,
+        code: string,
+        message: string,
+        requestId?: string | null,
+        body?: unknown
+    ) {
         super(message);
         this.name = "ApiError";
         this.status = status;
         this.code = code;
+        this.requestId = (requestId ?? "").trim() || null;
+        this.body = body ?? null;
     }
 }
 
@@ -39,6 +50,24 @@ async function safeReadJson(res: Response): Promise<any | null> {
     } catch {
         return null;
     }
+}
+
+function normalizeRequestId(value: unknown): string | null {
+    if (typeof value !== "string") return null;
+    const v = value.trim();
+    return v ? v : null;
+}
+
+function extractRequestId(res: Response, json: any | null): string | null {
+    const bodyRequestId = normalizeRequestId(json?.error?.request_id);
+    if (bodyRequestId) return bodyRequestId;
+
+    const headerRequestId = normalizeRequestId(
+        res.headers.get("x-request-id") ?? res.headers.get("X-Request-ID")
+    );
+    if (headerRequestId) return headerRequestId;
+
+    return null;
 }
 
 export function createApiClient(opts: ClientOptions = {}) {
@@ -89,6 +118,7 @@ export function createApiClient(opts: ClientOptions = {}) {
         if (res.status === 204) return undefined as unknown as T;
 
         const json = await safeReadJson(res);
+        const requestId = extractRequestId(res, json);
 
         if (!res.ok) {
             const code =
@@ -99,7 +129,7 @@ export function createApiClient(opts: ClientOptions = {}) {
                 res.statusText ||
                 "Request failed";
 
-            throw new ApiError(res.status, code, message);
+            throw new ApiError(res.status, code, message, requestId, json);
         }
 
         if (json && typeof json === "object" && "data" in json) {

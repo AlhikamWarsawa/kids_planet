@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
+	"strings"
 	"time"
 )
 
@@ -21,6 +23,9 @@ type Game struct {
 	CreatedBy     int64
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
+
+	EducationCategoryIDsJSON []byte
+	EducationCategoriesJSON  []byte
 }
 
 type GameRepo struct {
@@ -58,8 +63,27 @@ func (r *GameRepo) ListAdminGames(ctx context.Context, filter AdminGameFilter) (
 
 	const q = `
 SELECT id, title, slug, description, thumbnail, game_url, difficulty,
-       age_category_id, free, status, created_by, created_at, updated_at
+       age_category_id, free, status, created_by, created_at, updated_at,
+       COALESCE(edu.education_category_ids, '[]'::jsonb) AS education_category_ids,
+       COALESCE(edu.education_categories, '[]'::jsonb) AS education_categories
 FROM games g
+LEFT JOIN LATERAL (
+  SELECT
+    COALESCE(jsonb_agg(gec.education_category_id ORDER BY gec.education_category_id), '[]'::jsonb) AS education_category_ids,
+    COALESCE(
+      jsonb_agg(
+        jsonb_build_object(
+          'id', ec.id,
+          'name', ec.name
+        )
+        ORDER BY ec.id
+      ),
+      '[]'::jsonb
+    ) AS education_categories
+  FROM game_education_categories gec
+  JOIN education_categories ec ON ec.id = gec.education_category_id
+  WHERE gec.game_id = g.id
+) edu ON TRUE
 WHERE ($1::text IS NULL OR g.status = $1::game_status)
   AND ($2::text IS NULL OR g.title ILIKE '%'||$2||'%' OR g.slug ILIKE '%'||$2||'%')
 ORDER BY g.updated_at DESC, g.id DESC
@@ -88,6 +112,8 @@ LIMIT $3 OFFSET $4;
 			&g.CreatedBy,
 			&g.CreatedAt,
 			&g.UpdatedAt,
+			&g.EducationCategoryIDsJSON,
+			&g.EducationCategoriesJSON,
 		); err != nil {
 			return nil, err
 		}
@@ -148,6 +174,104 @@ func (r *GameRepo) AgeCategoryExists(ctx context.Context, id int64) (bool, error
 		return false, err
 	}
 	return exists, nil
+}
+
+func (r *GameRepo) EducationCategoryIDsExist(ctx context.Context, ids []int64) (bool, error) {
+	if len(ids) == 0 {
+		return true, nil
+	}
+
+	seen := make(map[int64]struct{}, len(ids))
+	unique := make([]int64, 0, len(ids))
+	for _, id := range ids {
+		if id < 1 {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		unique = append(unique, id)
+	}
+	if len(unique) == 0 {
+		return true, nil
+	}
+
+	args := make([]any, 0, len(unique))
+	placeholders := make([]string, 0, len(unique))
+	for i, id := range unique {
+		args = append(args, id)
+		placeholders = append(placeholders, fmt.Sprintf("$%d", i+1))
+	}
+
+	query := fmt.Sprintf(
+		"SELECT COUNT(*) FROM education_categories WHERE id IN (%s);",
+		strings.Join(placeholders, ","),
+	)
+
+	var count int
+	if err := r.db.QueryRowContext(ctx, query, args...).Scan(&count); err != nil {
+		return false, err
+	}
+	return count == len(unique), nil
+}
+
+func (r *GameRepo) ReplaceGameEducationCategories(ctx context.Context, gameID int64, educationCategoryIDs []int64) error {
+	if gameID <= 0 {
+		return errors.New("game id is required")
+	}
+
+	seen := make(map[int64]struct{}, len(educationCategoryIDs))
+	unique := make([]int64, 0, len(educationCategoryIDs))
+	for _, id := range educationCategoryIDs {
+		if id < 1 {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		unique = append(unique, id)
+	}
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
+	if _, err := tx.ExecContext(ctx, `DELETE FROM game_education_categories WHERE game_id = $1;`, gameID); err != nil {
+		return err
+	}
+
+	if len(unique) > 0 {
+		args := make([]any, 0, len(unique)+1)
+		args = append(args, gameID)
+		valueParts := make([]string, 0, len(unique))
+		for i, id := range unique {
+			args = append(args, id)
+			valueParts = append(valueParts, fmt.Sprintf("($1, $%d)", i+2))
+		}
+
+		query := fmt.Sprintf(
+			`INSERT INTO game_education_categories (game_id, education_category_id) VALUES %s;`,
+			strings.Join(valueParts, ", "),
+		)
+		if _, err := tx.ExecContext(ctx, query, args...); err != nil {
+			return err
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	committed = true
+	return nil
 }
 
 type CreateAdminGameInput struct {
@@ -381,8 +505,27 @@ func (r *GameRepo) GetByID(ctx context.Context, id int64) (*Game, error) {
 
 	const q = `
 SELECT id, title, slug, description, thumbnail, game_url, difficulty,
-       age_category_id, free, status, created_by, created_at, updated_at
+       age_category_id, free, status, created_by, created_at, updated_at,
+       COALESCE(edu.education_category_ids, '[]'::jsonb) AS education_category_ids,
+       COALESCE(edu.education_categories, '[]'::jsonb) AS education_categories
 FROM games
+LEFT JOIN LATERAL (
+  SELECT
+    COALESCE(jsonb_agg(gec.education_category_id ORDER BY gec.education_category_id), '[]'::jsonb) AS education_category_ids,
+    COALESCE(
+      jsonb_agg(
+        jsonb_build_object(
+          'id', ec.id,
+          'name', ec.name
+        )
+        ORDER BY ec.id
+      ),
+      '[]'::jsonb
+    ) AS education_categories
+  FROM game_education_categories gec
+  JOIN education_categories ec ON ec.id = gec.education_category_id
+  WHERE gec.game_id = games.id
+) edu ON TRUE
 WHERE id = $1
 LIMIT 1;
 `
@@ -401,6 +544,8 @@ LIMIT 1;
 		&g.CreatedBy,
 		&g.CreatedAt,
 		&g.UpdatedAt,
+		&g.EducationCategoryIDsJSON,
+		&g.EducationCategoriesJSON,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -425,8 +570,39 @@ SELECT
   g.game_url,
   g.age_category_id,
   g.free,
-  g.created_at
+  g.created_at,
+  ac.label AS age_label,
+  ac.min_age,
+  ac.max_age,
+  COALESCE(pop.popularity, 0) AS play_count,
+  COALESCE(edu.education_category_ids, '[]'::jsonb) AS education_category_ids,
+  COALESCE(edu.education_categories, '[]'::jsonb) AS education_categories
 FROM games g
+JOIN age_categories ac ON ac.id = g.age_category_id
+LEFT JOIN (
+  SELECT ae.game_id, COUNT(*)::bigint AS popularity
+  FROM analytics_events ae
+  WHERE ae.event_name = 'game_start'
+    AND ae.created_at >= NOW() - INTERVAL '7 days'
+  GROUP BY ae.game_id
+) pop ON pop.game_id = g.id
+LEFT JOIN LATERAL (
+  SELECT
+    COALESCE(jsonb_agg(gec.education_category_id ORDER BY gec.education_category_id), '[]'::jsonb) AS education_category_ids,
+    COALESCE(
+      jsonb_agg(
+        jsonb_build_object(
+          'id', ec.id,
+          'name', ec.name
+        )
+        ORDER BY ec.id
+      ),
+      '[]'::jsonb
+    ) AS education_categories
+  FROM game_education_categories gec
+  JOIN education_categories ec ON ec.id = gec.education_category_id
+  WHERE gec.game_id = g.id
+) edu ON TRUE
 WHERE g.id = $1
   AND g.status = 'active'
 LIMIT 1;
@@ -442,6 +618,12 @@ LIMIT 1;
 		&it.AgeCategoryID,
 		&it.Free,
 		&it.CreatedAt,
+		&it.AgeLabel,
+		&it.MinAge,
+		&it.MaxAge,
+		&it.PlayCount,
+		&it.EducationCategoryIDsJSON,
+		&it.EducationCategoriesJSON,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -477,6 +659,13 @@ type GameListItem struct {
 	AgeCategoryID int64
 	Free          bool
 	CreatedAt     time.Time
+	AgeLabel      sql.NullString
+	MinAge        sql.NullInt64
+	MaxAge        sql.NullInt64
+	PlayCount     int64
+
+	EducationCategoryIDsJSON []byte
+	EducationCategoriesJSON  []byte
 }
 
 func (f *GameListFilter) normalize() {
@@ -509,8 +698,39 @@ SELECT
   g.game_url,
   g.age_category_id,
   g.free,
-  g.created_at
+  g.created_at,
+  ac.label AS age_label,
+  ac.min_age,
+  ac.max_age,
+  COALESCE(pop.popularity, 0) AS play_count,
+  COALESCE(edu.education_category_ids, '[]'::jsonb) AS education_category_ids,
+  COALESCE(edu.education_categories, '[]'::jsonb) AS education_categories
 FROM games g
+JOIN age_categories ac ON ac.id = g.age_category_id
+LEFT JOIN (
+  SELECT ae.game_id, COUNT(*)::bigint AS popularity
+  FROM analytics_events ae
+  WHERE ae.event_name = 'game_start'
+    AND ae.created_at >= NOW() - INTERVAL '7 days'
+  GROUP BY ae.game_id
+) pop ON pop.game_id = g.id
+LEFT JOIN LATERAL (
+  SELECT
+    COALESCE(jsonb_agg(gec.education_category_id ORDER BY gec.education_category_id), '[]'::jsonb) AS education_category_ids,
+    COALESCE(
+      jsonb_agg(
+        jsonb_build_object(
+          'id', ec.id,
+          'name', ec.name
+        )
+        ORDER BY ec.id
+      ),
+      '[]'::jsonb
+    ) AS education_categories
+  FROM game_education_categories gec
+  JOIN education_categories ec ON ec.id = gec.education_category_id
+  WHERE gec.game_id = g.id
+) edu ON TRUE
 WHERE g.status = 'active'
   AND ($1::bigint IS NULL OR g.age_category_id = $1::bigint)
   AND ($2::bigint IS NULL OR EXISTS (
@@ -531,15 +751,39 @@ SELECT
   g.game_url,
   g.age_category_id,
   g.free,
-  g.created_at
+  g.created_at,
+  ac.label AS age_label,
+  ac.min_age,
+  ac.max_age,
+  COALESCE(pop.popularity, 0) AS play_count,
+  COALESCE(edu.education_category_ids, '[]'::jsonb) AS education_category_ids,
+  COALESCE(edu.education_categories, '[]'::jsonb) AS education_categories
 FROM games g
+JOIN age_categories ac ON ac.id = g.age_category_id
 LEFT JOIN (
-  SELECT ae.game_id, COUNT(*) AS popularity
+  SELECT ae.game_id, COUNT(*)::bigint AS popularity
   FROM analytics_events ae
   WHERE ae.event_name = 'game_start'
     AND ae.created_at >= NOW() - INTERVAL '7 days'
   GROUP BY ae.game_id
 ) pop ON pop.game_id = g.id
+LEFT JOIN LATERAL (
+  SELECT
+    COALESCE(jsonb_agg(gec.education_category_id ORDER BY gec.education_category_id), '[]'::jsonb) AS education_category_ids,
+    COALESCE(
+      jsonb_agg(
+        jsonb_build_object(
+          'id', ec.id,
+          'name', ec.name
+        )
+        ORDER BY ec.id
+      ),
+      '[]'::jsonb
+    ) AS education_categories
+  FROM game_education_categories gec
+  JOIN education_categories ec ON ec.id = gec.education_category_id
+  WHERE gec.game_id = g.id
+) edu ON TRUE
 WHERE g.status = 'active'
   AND ($1::bigint IS NULL OR g.age_category_id = $1::bigint)
   AND ($2::bigint IS NULL OR EXISTS (
@@ -580,6 +824,12 @@ LIMIT $3 OFFSET $4;
 			&it.AgeCategoryID,
 			&it.Free,
 			&it.CreatedAt,
+			&it.AgeLabel,
+			&it.MinAge,
+			&it.MaxAge,
+			&it.PlayCount,
+			&it.EducationCategoryIDsJSON,
+			&it.EducationCategoriesJSON,
 		); err != nil {
 			return nil, err
 		}

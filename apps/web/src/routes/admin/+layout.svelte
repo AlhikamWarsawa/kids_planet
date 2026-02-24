@@ -3,7 +3,7 @@
 	import { goto } from "$app/navigation";
 	import { page } from "$app/stores";
 	import { auth } from "$lib/stores/auth";
-	import { ApiError } from "$lib/api/client";
+	import { formatMappedError, mapApiError } from "$lib/api/errorMapper";
 
 	let booting = true;
 	let ready = false;
@@ -41,8 +41,10 @@
 
 			ready = true;
 		} catch (e) {
-			if (e instanceof ApiError) bootError = `${e.code}: ${e.message}`;
-			else bootError = String(e);
+			bootError = formatMappedError(mapApiError(e, "Failed to validate admin session"), {
+				includeCode: false,
+				includeRequestId: true
+			});
 		} finally {
 			booting = false;
 		}
@@ -130,25 +132,16 @@
 					Games
 				</a>
 
-				<a
-						href="/admin/categories"
-						style="padding: 10px 10px; border-radius: 10px; text-decoration:none;
-            background: {$page.url.pathname.startsWith('/admin/categories') ? '#111' : 'transparent'};
-            color: {$page.url.pathname.startsWith('/admin/categories') ? '#fff' : '#111'};"
-				>
-					Categories
-				</a>
-
-				<a
-						href="/admin/moderation"
-						style="padding: 10px 10px; border-radius: 10px; text-decoration:none;
-            background: {$page.url.pathname.startsWith('/admin/moderation') ? '#111' : 'transparent'};
-            color: {$page.url.pathname.startsWith('/admin/moderation') ? '#fff' : '#111'};"
-				>
-					Moderation
-				</a>
-			</nav>
-		</aside>
+					<a
+							href="/admin/categories"
+							style="padding: 10px 10px; border-radius: 10px; text-decoration:none;
+	            background: {$page.url.pathname.startsWith('/admin/categories') ? '#111' : 'transparent'};
+	            color: {$page.url.pathname.startsWith('/admin/categories') ? '#fff' : '#111'};"
+					>
+						Categories
+					</a>
+				</nav>
+			</aside>
 
 		<main style="flex: 1; padding: 20px;">
 			<slot />

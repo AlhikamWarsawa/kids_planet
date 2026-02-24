@@ -1,7 +1,7 @@
 <script lang="ts">
     import { onMount } from "svelte";
     import Spinner from "$lib/components/Spinner.svelte";
-    import { ApiError } from "$lib/api/client";
+    import { formatMappedError, mapApiError } from "$lib/api/errorMapper";
     import {
         adminDashboardOverview,
         type DashboardOverviewDTO,
@@ -25,11 +25,10 @@
             overview = await adminDashboardOverview();
             lastUpdated = new Date().toLocaleString();
         } catch (err) {
-            if (err instanceof ApiError) {
-                errorMsg = `${err.code}: ${err.message}`;
-            } else {
-                errorMsg = String(err);
-            }
+            errorMsg = formatMappedError(mapApiError(err, "Dashboard failed to load"), {
+                includeCode: false,
+                includeRequestId: true,
+            });
         } finally {
             loading = false;
         }

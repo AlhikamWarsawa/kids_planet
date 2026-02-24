@@ -2,15 +2,22 @@ package utils
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
+
+	"github.com/gofiber/fiber/v2"
 )
 
 const (
+	RequestIDHeader   = "X-Request-ID"
+	RequestIDLocalKey = "request_id"
+
 	CodeBadRequest              = "BAD_REQUEST"
 	CodeUnauthorized            = "UNAUTHORIZED"
 	CodeForbidden               = "FORBIDDEN"
-	CodeNotFound                = "NOT_FOUND"
+	CodeResourceNotFound        = "RESOURCE_NOT_FOUND"
+	CodeNotFound                = CodeResourceNotFound
 	CodeInternal                = "INTERNAL_ERROR"
 	CodeRateLimited             = "RATE_LIMITED"
 	CodeInvalidZip              = "INVALID_ZIP"
@@ -22,25 +29,53 @@ const (
 	CodeMissingIndexHTML        = "MISSING_INDEX_HTML"
 )
 
-type AppError struct {
-	Code       string
-	Message    string
-	HTTPStatus int
+type APIError struct {
+	Code       string `json:"code"`
+	Message    string `json:"message"`
+	RequestID  string `json:"request_id,omitempty"`
+	HTTPStatus int    `json:"-"`
 }
 
-func (e AppError) Error() string {
+type AppError = APIError
+
+func (e APIError) Error() string {
 	return e.Code + ": " + e.Message
 }
 
-func ErrBadRequest(msg string) AppError {
+func normalizeMessage(msg string, fallback string) string {
+	msg = strings.TrimSpace(msg)
 	if msg == "" {
-		msg = "invalid input"
+		return fallback
 	}
-	return AppError{
+	return msg
+}
+
+func NewBadRequest(msg string) APIError {
+	return APIError{
 		Code:       CodeBadRequest,
-		Message:    msg,
+		Message:    normalizeMessage(msg, "invalid input"),
 		HTTPStatus: http.StatusBadRequest,
 	}
+}
+
+func NewNotFound(msg string) APIError {
+	return APIError{
+		Code:       CodeResourceNotFound,
+		Message:    normalizeMessage(msg, "not found"),
+		HTTPStatus: http.StatusNotFound,
+	}
+}
+
+func NewInternal(msg string) APIError {
+	return APIError{
+		Code:       CodeInternal,
+		Message:    normalizeMessage(msg, "internal error"),
+		HTTPStatus: http.StatusInternalServerError,
+	}
+}
+
+func ErrBadRequest(msg string) AppError {
+	return NewBadRequest(msg)
 }
 
 func ErrUnauthorized() AppError {
@@ -60,42 +95,25 @@ func ErrForbidden() AppError {
 }
 
 func ErrNotFound(msg string) AppError {
-	if msg == "" {
-		msg = "not found"
-	}
-	return AppError{
-		Code:       CodeNotFound,
-		Message:    msg,
-		HTTPStatus: http.StatusNotFound,
-	}
+	return NewNotFound(msg)
 }
 
 func ErrInternal() AppError {
-	return AppError{
-		Code:       CodeInternal,
-		Message:    "internal error",
-		HTTPStatus: http.StatusInternalServerError,
-	}
+	return NewInternal("")
 }
 
 func ErrRateLimited(msg string) AppError {
-	if msg == "" {
-		msg = "rate limited"
-	}
 	return AppError{
 		Code:       CodeRateLimited,
-		Message:    msg,
+		Message:    normalizeMessage(msg, "rate limited"),
 		HTTPStatus: http.StatusTooManyRequests,
 	}
 }
 
 func ErrInvalidZip(msg string) AppError {
-	if msg == "" {
-		msg = "invalid zip file"
-	}
 	return AppError{
 		Code:       CodeInvalidZip,
-		Message:    msg,
+		Message:    normalizeMessage(msg, "invalid zip file"),
 		HTTPStatus: http.StatusBadRequest,
 	}
 }
@@ -113,12 +131,9 @@ func ErrZipTooLarge(maxBytes int64) AppError {
 }
 
 func ErrInvalidZipPath(msg string) AppError {
-	if msg == "" {
-		msg = "zip entry path is invalid"
-	}
 	return AppError{
 		Code:       CodeInvalidZipPath,
-		Message:    msg,
+		Message:    normalizeMessage(msg, "zip entry path is invalid"),
 		HTTPStatus: http.StatusUnprocessableEntity,
 	}
 }
@@ -165,4 +180,113 @@ func ErrMissingIndexHTML() AppError {
 		Message:    "index.html must exist at zip root",
 		HTTPStatus: http.StatusBadRequest,
 	}
+}
+
+func RequestIDFromContext(c *fiber.Ctx) string {
+	if c == nil {
+		return ""
+	}
+
+	switch v := c.Locals(RequestIDLocalKey).(type) {
+	case string:
+		return strings.TrimSpace(v)
+	case []byte:
+		return strings.TrimSpace(string(v))
+	default:
+		return ""
+	}
+}
+
+func WithRequestID(c *fiber.Ctx, appErr APIError) APIError {
+	if strings.TrimSpace(appErr.RequestID) != "" {
+		return appErr
+	}
+	appErr.RequestID = RequestIDFromContext(c)
+	return appErr
+}
+
+func statusFromCode(code string) int {
+	switch strings.TrimSpace(code) {
+	case CodeBadRequest:
+		return http.StatusBadRequest
+	case CodeUnauthorized:
+		return http.StatusUnauthorized
+	case CodeForbidden:
+		return http.StatusForbidden
+	case CodeResourceNotFound:
+		return http.StatusNotFound
+	case CodeRateLimited:
+		return http.StatusTooManyRequests
+	default:
+		return http.StatusInternalServerError
+	}
+}
+
+func WriteError(c *fiber.Ctx, appErr APIError) error {
+	if c == nil {
+		return nil
+	}
+
+	if strings.TrimSpace(appErr.Code) == "" {
+		appErr = NewInternal("")
+	}
+	if strings.TrimSpace(appErr.Message) == "" {
+		if appErr.HTTPStatus >= http.StatusInternalServerError {
+			appErr.Message = "internal error"
+		} else {
+			appErr.Message = "request failed"
+		}
+	}
+	if appErr.HTTPStatus == 0 {
+		appErr.HTTPStatus = statusFromCode(appErr.Code)
+	}
+
+	appErr = WithRequestID(c, appErr)
+	if appErr.RequestID != "" {
+		c.Set(RequestIDHeader, appErr.RequestID)
+	}
+
+	level := "warn"
+	if appErr.HTTPStatus >= http.StatusInternalServerError {
+		level = "error"
+	}
+	if appErr.HTTPStatus < http.StatusBadRequest {
+		level = "info"
+	}
+
+	requestID := appErr.RequestID
+	if requestID == "" {
+		requestID = "-"
+	}
+
+	log.Printf(
+		"level=%s request_id=%s method=%s path=%s status=%d code=%s msg=%q",
+		level,
+		requestID,
+		c.Method(),
+		c.OriginalURL(),
+		appErr.HTTPStatus,
+		appErr.Code,
+		appErr.Message,
+	)
+
+	return c.Status(appErr.HTTPStatus).JSON(fiber.Map{
+		"error": fiber.Map{
+			"code":       appErr.Code,
+			"message":    appErr.Message,
+			"request_id": appErr.RequestID,
+		},
+	})
+}
+
+func BadRequest(c *fiber.Ctx, msg string) error {
+	return WriteError(c, NewBadRequest(msg))
+}
+
+func NotFound(c *fiber.Ctx, msg string) error {
+	return WriteError(c, NewNotFound(msg))
+}
+
+func Internal(c *fiber.Ctx, msg string) error {
+	return WriteError(c, NewInternal(msg))
 }

@@ -2,7 +2,7 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
 	import { onMount } from 'svelte';
-	import { ApiError } from '$lib/api/client';
+	import { formatMappedError, mapApiError } from '$lib/api/errorMapper';
 	import { isLoggedIn, login, register } from '$lib/auth/playerAuth';
 
 	let email = '';
@@ -49,11 +49,10 @@
 
 			await goto(nextUrl);
 		} catch (e) {
-			if (e instanceof ApiError) {
-				errorMsg = e.message || 'Authentication failed';
-			} else {
-				errorMsg = 'Authentication failed';
-			}
+			errorMsg = formatMappedError(mapApiError(e, 'Authentication failed'), {
+				includeCode: false,
+				includeRequestId: true
+			});
 		} finally {
 			loading = false;
 			loadingMode = null;

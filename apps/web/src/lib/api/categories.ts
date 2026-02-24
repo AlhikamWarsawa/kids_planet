@@ -11,8 +11,6 @@ export type AgeCategoryDTO = {
 export type EducationCategoryDTO = {
     id: number;
     name: string;
-    icon: string | null;
-    color: string | null;
     created_at?: string;
 };
 
@@ -28,7 +26,84 @@ export type AdminListResponse<T> = {
     limit: number;
 };
 
-function buildQuery(params: AdminListParams = {}): string {
+export type PublicCategoriesResponse = {
+    age_categories: AgeCategoryDTO[];
+    education_categories: EducationCategoryDTO[];
+};
+
+function toInt(value: unknown): number | null {
+    if (typeof value === "number" && Number.isFinite(value)) return Math.trunc(value);
+    if (typeof value === "string" && value.trim() !== "") {
+        const parsed = Number(value.trim());
+        if (Number.isFinite(parsed)) return Math.trunc(parsed);
+    }
+    return null;
+}
+
+function toText(value: unknown): string {
+    if (typeof value !== "string") return "";
+    return value.trim();
+}
+
+function normalizeAgeCategories(value: unknown): AgeCategoryDTO[] {
+    if (!Array.isArray(value)) return [];
+    const out: AgeCategoryDTO[] = [];
+    for (const raw of value) {
+        const row = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+        const id = toInt(row.id ?? row.ID);
+        if (id == null || id < 1) continue;
+        const createdAt = toText(row.created_at ?? row.createdAt ?? row.CreatedAt);
+        out.push({
+            id,
+            label: toText(row.label ?? row.Label),
+            min_age: toInt(row.min_age ?? row.minAge ?? row.MinAge) ?? 0,
+            max_age: toInt(row.max_age ?? row.maxAge ?? row.MaxAge) ?? 0,
+            ...(createdAt ? { created_at: createdAt } : {}),
+        });
+    }
+    return out;
+}
+
+function normalizeEducationCategories(value: unknown): EducationCategoryDTO[] {
+    if (!Array.isArray(value)) return [];
+    const out: EducationCategoryDTO[] = [];
+    for (const raw of value) {
+        const row = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+        const id = toInt(row.id ?? row.ID);
+        if (id == null || id < 1) continue;
+        const createdAt = toText(row.created_at ?? row.createdAt ?? row.CreatedAt);
+
+        out.push({
+            id,
+            name: toText(row.name ?? row.Name),
+            ...(createdAt ? { created_at: createdAt } : {}),
+        });
+    }
+    return out;
+}
+
+function normalizePublicCategories(raw: unknown): PublicCategoriesResponse {
+    const row = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+    return {
+        age_categories: normalizeAgeCategories(row.age_categories ?? row.ageCategories),
+        education_categories: normalizeEducationCategories(
+            row.education_categories ?? row.educationCategories
+        ),
+    };
+}
+
+type PublicCategoriesType = "age" | "education";
+
+function buildPublicCategoriesQuery(type?: PublicCategoriesType): string {
+    const q = new URLSearchParams();
+    if (type === "age" || type === "education") {
+        q.set("type", type);
+    }
+    const qs = q.toString();
+    return qs ? `?${qs}` : "";
+}
+
+function buildAdminQuery(params: AdminListParams = {}): string {
     const q = new URLSearchParams();
 
     if (typeof params.q === "string" && params.q.trim() !== "") {
@@ -43,6 +118,19 @@ function buildQuery(params: AdminListParams = {}): string {
 
     const qs = q.toString();
     return qs ? `?${qs}` : "";
+}
+
+export function getPublicCategories(
+    opts: {
+        type?: PublicCategoriesType;
+    } = {}
+): Promise<PublicCategoriesResponse> {
+    const qs = buildPublicCategoriesQuery(opts.type);
+    return api.get<any>(`/categories${qs}`).then((raw) => normalizePublicCategories(raw));
+}
+
+export function getPublicEducationCategories(): Promise<EducationCategoryDTO[]> {
+    return getPublicCategories({ type: "education" }).then((raw) => raw.education_categories);
 }
 
 // Age Categories
@@ -62,7 +150,7 @@ export type AdminUpdateAgeCategoryRequest = {
 export function adminListAgeCategories(
     params: AdminListParams = {}
 ): Promise<AdminListResponse<AgeCategoryDTO>> {
-    const qs = buildQuery(params);
+    const qs = buildAdminQuery(params);
     return api.get<AdminListResponse<AgeCategoryDTO>>(`/admin/age-categories${qs}`);
 }
 
@@ -100,20 +188,16 @@ export function adminDeleteAgeCategory(
 // Education Categories
 export type AdminCreateEducationCategoryRequest = {
     name: string;
-    icon?: string | null;
-    color?: string | null;
 };
 
 export type AdminUpdateEducationCategoryRequest = {
     name?: string;
-    icon?: string | null;
-    color?: string | null;
 };
 
 export function adminListEducationCategories(
     params: AdminListParams = {}
 ): Promise<AdminListResponse<EducationCategoryDTO>> {
-    const qs = buildQuery(params);
+    const qs = buildAdminQuery(params);
     return api.get<AdminListResponse<EducationCategoryDTO>>(
         `/admin/education-categories${qs}`
     );

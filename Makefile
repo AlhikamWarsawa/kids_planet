@@ -1,7 +1,7 @@
 g:
 	git pull
 	git add .
-	git commit -m "Security Pass + Performance"
+	git commit -m "Error Handling + Fix Bug"
 	git push
 
 dev:

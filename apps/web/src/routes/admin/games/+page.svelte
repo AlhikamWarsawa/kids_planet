@@ -2,9 +2,12 @@
     import { onMount } from "svelte";
     import { auth } from "$lib/stores/auth";
     import { ApiError, createApiClient } from "$lib/api/client";
+    import { formatMappedError, mapApiError } from "$lib/api/errorMapper";
+    import { getPublicEducationCategories, type EducationCategoryDTO } from "$lib/api/categories";
     import Toast from "$lib/components/Toast.svelte";
     import ProgressBar from "$lib/components/ProgressBar.svelte";
     import Spinner from "$lib/components/Spinner.svelte";
+    import { formatGameAgeTag, resolveGameIconUrl } from "$lib/utils/gameDisplay";
     import type {
         AdminGameDTO,
         AdminGameListResponse,
@@ -44,6 +47,7 @@
     let uploadProgressById: Record<number, number | null> = {};
     let uploadStageById: Record<number, UploadStage> = {};
     let uploadErrorById: Record<number, string | null> = {};
+    let iconErrorById: Record<number, boolean> = {};
 
     let toast: { kind: "ok" | "err"; message: string } | null = null;
     let toastTimer: any = null;
@@ -52,6 +56,13 @@
         toast = { kind, message };
         if (toastTimer) clearTimeout(toastTimer);
         toastTimer = setTimeout(() => (toast = null), 2200);
+    }
+
+    function toErrorText(error: unknown, fallback = "Request failed") {
+        return formatMappedError(mapApiError(error, fallback), {
+            includeCode: false,
+            includeRequestId: true,
+        });
     }
 
     function setUploadProgress(gameId: number, value: number | null) {
@@ -127,26 +138,32 @@
 
     function describeUploadError(err: unknown) {
         if (err instanceof ApiError) {
+            const withRequestId = (message: string) =>
+                err.requestId ? `${message}\nRequest ID: ${err.requestId}` : message;
             switch (err.code) {
                 case "ZIP_TOO_LARGE":
-                    return `That ZIP is too large. Max ${formatBytes(ZIP_MAX_BYTES)}.`;
+                    return withRequestId(`That ZIP is too large. Max ${formatBytes(ZIP_MAX_BYTES)}.`);
                 case "MISSING_INDEX_HTML":
-                    return "We couldn't find an index.html at the root of the ZIP. Move it to the top level and try again.";
+                    return withRequestId(
+                        "We couldn't find an index.html at the root of the ZIP. Move it to the top level and try again."
+                    );
                 case "INVALID_ZIP":
-                    return "That ZIP doesn't look valid. Please export again and try.";
+                    return withRequestId("That ZIP doesn't look valid. Please export again and try.");
                 case "NOT_FOUND":
-                    return "We couldn't find this game anymore. Please refresh and try again.";
+                    return withRequestId("We couldn't find this game anymore. Please refresh and try again.");
                 case "INTERNAL_ERROR":
                 case "INTERNAL_SERVER_ERROR":
-                    return "Something went wrong while processing the ZIP. Please try again.";
+                    return withRequestId("Something went wrong while processing the ZIP. Please try again.");
                 case "UNAUTHORIZED":
-                    return "Your session expired. Please log in again.";
+                    return withRequestId("Your session expired. Please log in again.");
                 case "BAD_REQUEST":
-                    return err.message?.trim() || "Upload failed. Please check the ZIP and try again.";
+                    return withRequestId(
+                        err.message?.trim() || "Upload failed. Please check the ZIP and try again."
+                    );
                 case "NETWORK_ERROR":
                     return "Network error. Please check your connection and try again.";
                 default:
-                    return err.message?.trim() || "Upload failed. Please try again.";
+                    return withRequestId(err.message?.trim() || "Upload failed. Please try again.");
             }
         }
 
@@ -211,7 +228,15 @@
 
                 const code = json?.error?.code || (status === 401 ? "UNAUTHORIZED" : "HTTP_ERROR");
                 const message = json?.error?.message || xhr.statusText || "Request failed";
-                reject(new ApiError(status, code, message));
+                const requestId = (
+                    json?.error?.request_id ||
+                    xhr.getResponseHeader("X-Request-ID") ||
+                    xhr.getResponseHeader("x-request-id") ||
+                    ""
+                )
+                    .toString()
+                    .trim();
+                reject(new ApiError(status, code, message, requestId || null, json));
             };
 
             const fd = new FormData();
@@ -318,9 +343,18 @@
         max_age: number;
     };
 
+    type GameEducationCategoryDTO = {
+        id: number;
+        name: string;
+    };
+
     let ageCatsLoading = true;
     let ageCatsError: string | null = null;
     let ageCats: AgeCategoryDTO[] = [];
+    let educationCatsLoading = true;
+    let educationCatsError: string | null = null;
+    let educationCats: EducationCategoryDTO[] = [];
+    let educationNameById: Record<number, string> = {};
 
     function pickId(obj: any): number | null {
         const v = obj?.id ?? obj?.ID ?? obj?.Id ?? obj?.iD;
@@ -371,8 +405,7 @@
                 formAgeCategoryId = ageCats[0].id as any;
             }
         } catch (e) {
-            if (e instanceof ApiError) ageCatsError = `${e.code}: ${e.message}`;
-            else ageCatsError = String(e);
+            ageCatsError = toErrorText(e, "Failed to load age categories");
         } finally {
             ageCatsLoading = false;
         }
@@ -382,10 +415,52 @@
         return v == null ? "" : String(v);
     }
 
+    function normalizeNullableInt(v: any): number | null {
+        const n = Number(v);
+        if (!Number.isFinite(n)) return null;
+        return Math.trunc(n);
+    }
+
     function normalizeNullableText(v: any) {
         if (v == null) return null;
         const s = String(v);
         return s.trim() ? s : null;
+    }
+
+    function normalizeIntArray(v: any): number[] {
+        if (!Array.isArray(v)) return [];
+        const out: number[] = [];
+        const seen = new Set<number>();
+        for (const item of v) {
+            const n = Number(item);
+            if (!Number.isFinite(n)) continue;
+            const id = Math.trunc(n);
+            if (id < 1 || seen.has(id)) continue;
+            seen.add(id);
+            out.push(id);
+        }
+        return out;
+    }
+
+    function normalizeEducationCategories(raw: any): GameEducationCategoryDTO[] {
+        if (!Array.isArray(raw)) return [];
+        const out: GameEducationCategoryDTO[] = [];
+        const seen = new Set<number>();
+        for (const item of raw) {
+            const row = item && typeof item === "object" ? item : {};
+            const id = Number((row as any)?.id ?? (row as any)?.ID);
+            if (!Number.isFinite(id)) continue;
+            const normalizedId = Math.trunc(id);
+            if (normalizedId < 1 || seen.has(normalizedId)) continue;
+            const name = String((row as any)?.name ?? (row as any)?.Name ?? "").trim();
+            if (!name) continue;
+            seen.add(normalizedId);
+            out.push({
+                id: normalizedId,
+                name,
+            });
+        }
+        return out;
     }
 
     function normalizeBool(v: any) {
@@ -414,11 +489,66 @@
             status: normalizeStatus(raw?.status ?? raw?.Status),
             thumbnail: normalizeNullableText(raw?.thumbnail ?? raw?.Thumbnail),
             game_url: normalizeNullableText(raw?.game_url ?? raw?.gameUrl ?? raw?.GameUrl ?? raw?.GameURL),
+            icon: normalizeNullableText(raw?.icon ?? raw?.Icon),
             age_category_id: clampInt(Number(raw?.age_category_id ?? raw?.AgeCategoryID ?? raw?.ageCategoryId ?? 0), 0, 1_000_000_000),
+            age_rating: normalizeNullableText(raw?.age_rating ?? raw?.ageRating ?? raw?.AgeRating),
+            age_range: raw?.age_range ?? raw?.ageRange ?? raw?.AgeRange ?? null,
+            min_age: normalizeNullableInt(raw?.min_age ?? raw?.minAge ?? raw?.MinAge),
+            max_age: normalizeNullableInt(raw?.max_age ?? raw?.maxAge ?? raw?.MaxAge),
+            education_category_ids: normalizeIntArray(
+                raw?.education_category_ids ?? raw?.educationCategoryIds ?? raw?.EducationCategoryIDs
+            ),
+            education_categories: normalizeEducationCategories(
+                raw?.education_categories ?? raw?.educationCategories ?? raw?.EducationCategories
+            ),
+            play_count: normalizeNullableInt(raw?.play_count ?? raw?.playCount ?? raw?.Plays),
             free: normalizeBool(raw?.free ?? raw?.Free),
             created_at: normalizeText(raw?.created_at ?? raw?.CreatedAt),
             updated_at: normalizeText(raw?.updated_at ?? raw?.UpdatedAt),
         };
+    }
+
+    function gameIconUrl(g: AdminGameDTO): string | null {
+        return resolveGameIconUrl(g);
+    }
+
+    function hasGameIcon(g: AdminGameDTO): boolean {
+        return Boolean(gameIconUrl(g)) && !Boolean(iconErrorById[g.id]);
+    }
+
+    function markIconError(gameId: number) {
+        iconErrorById = { ...iconErrorById, [gameId]: true };
+    }
+
+    function gameAgeLabel(g: AdminGameDTO): string {
+        return formatGameAgeTag(g);
+    }
+
+    function normalizeEducationSelection(ids: number[]): number[] {
+        return normalizeIntArray(ids).sort((a, b) => a - b);
+    }
+
+    function gameEducationLabels(g: AdminGameDTO): string[] {
+        const namesFromResponse = new Map<number, string>();
+        const categories = Array.isArray(g.education_categories) ? g.education_categories : [];
+        for (const category of categories) {
+            const id = Number(category.id);
+            if (!Number.isFinite(id) || id < 1) continue;
+            const name = String(category.name ?? "").trim();
+            if (!name) continue;
+            namesFromResponse.set(Math.trunc(id), name);
+        }
+
+        const allIds = normalizeEducationSelection([
+            ...(Array.isArray(g.education_category_ids) ? g.education_category_ids : []),
+            ...[...namesFromResponse.keys()],
+        ]);
+
+        const labels = allIds.map((id) => {
+            return namesFromResponse.get(id) ?? educationNameById[id] ?? `Category #${id}`;
+        });
+
+        return labels.filter((label) => label.trim() !== "");
     }
 
     type Mode = "create" | "edit";
@@ -427,7 +557,8 @@
 
     let formTitle = "";
     let formSlug = "";
-    let formAgeCategoryId: any = 1;
+    let formAgeCategoryId: any = null;
+    let formEducationCategoryIds: number[] = [];
     let formFree = true;
 
     let submitting = false;
@@ -438,7 +569,8 @@
         formTitle = "";
         formSlug = "";
         if (ageCats.length > 0) formAgeCategoryId = ageCats[0].id as any;
-        else formAgeCategoryId = 1;
+        else formAgeCategoryId = null;
+        formEducationCategoryIds = [];
         formFree = true;
     }
 
@@ -447,7 +579,11 @@
         editId = g.id;
         formTitle = g.title ?? "";
         formSlug = g.slug ?? "";
-        formAgeCategoryId = (g.age_category_id ?? (ageCats[0]?.id ?? 1)) as any;
+        formAgeCategoryId = (g.age_category_id ?? (ageCats[0]?.id ?? null)) as any;
+        formEducationCategoryIds = normalizeEducationSelection([
+            ...(Array.isArray(g.education_category_ids) ? g.education_category_ids : []),
+            ...(Array.isArray(g.education_categories) ? g.education_categories.map((x) => Number(x.id)) : []),
+        ]);
         formFree = Boolean(g.free);
         showToast("ok", "Edit mode");
         window.scrollTo({ top: 0, behavior: "smooth" });
@@ -456,11 +592,14 @@
     function validateForm() {
         const t = formTitle.trim();
         const s = formSlug.trim();
-        const age = clampInt(Number(formAgeCategoryId), 1, 1_000_000_000);
+        const age = Number(formAgeCategoryId);
 
         if (!t) return "title is required";
         if (!s) return "slug is required";
-        if (age < 1) return "age_category_id must be >= 1";
+        if (!Number.isFinite(age) || age < 1) return "age_category_id must be >= 1";
+        for (const id of formEducationCategoryIds) {
+            if (!Number.isFinite(id) || id < 1) return "education categories are invalid";
+        }
         return null;
     }
 
@@ -477,6 +616,7 @@
                 title: formTitle.trim(),
                 slug: formSlug.trim(),
                 age_category_id: clampInt(Number(formAgeCategoryId), 1, 1_000_000_000),
+                education_category_ids: normalizeEducationSelection(formEducationCategoryIds),
                 free: Boolean(formFree),
             };
 
@@ -485,8 +625,7 @@
             resetForm();
             await loadList();
         } catch (e) {
-            if (e instanceof ApiError) showToast("err", `${e.code}: ${e.message}`);
-            else showToast("err", String(e));
+            showToast("err", toErrorText(e));
         } finally {
             submitting = false;
         }
@@ -510,6 +649,7 @@
                 title: formTitle.trim(),
                 slug: formSlug.trim(),
                 age_category_id: clampInt(Number(formAgeCategoryId), 1, 1_000_000_000),
+                education_category_ids: normalizeEducationSelection(formEducationCategoryIds),
                 free: Boolean(formFree),
             };
 
@@ -518,8 +658,7 @@
             resetForm();
             await loadList({ keepPage: true });
         } catch (e) {
-            if (e instanceof ApiError) showToast("err", `${e.code}: ${e.message}`);
-            else showToast("err", String(e));
+            showToast("err", toErrorText(e));
         } finally {
             submitting = false;
         }
@@ -553,6 +692,7 @@
             const nextProgress: Record<number, number | null> = {};
             const nextStage: Record<number, UploadStage> = {};
             const nextError: Record<number, string | null> = {};
+            const nextIconError: Record<number, boolean> = {};
 
             for (const id of ids) {
                 nextFiles[id] = uploadFileById[id] ?? null;
@@ -561,6 +701,7 @@
                 nextProgress[id] = uploadProgressById[id] ?? null;
                 nextStage[id] = uploadStageById[id] ?? "idle";
                 nextError[id] = uploadErrorById[id] ?? null;
+                nextIconError[id] = iconErrorById[id] ?? false;
             }
             uploadFileById = nextFiles;
             uploadingById = nextUploading;
@@ -568,9 +709,9 @@
             uploadProgressById = nextProgress;
             uploadStageById = nextStage;
             uploadErrorById = nextError;
+            iconErrorById = nextIconError;
         } catch (e) {
-            if (e instanceof ApiError) errorMsg = `${e.code}: ${e.message}`;
-            else errorMsg = String(e);
+            errorMsg = toErrorText(e, "Failed to load games");
         } finally {
             loading = false;
         }
@@ -604,8 +745,7 @@
             showToast("ok", "Published");
             await loadList({ keepPage: true });
         } catch (e) {
-            if (e instanceof ApiError) showToast("err", `${e.code}: ${e.message}`);
-            else showToast("err", String(e));
+            showToast("err", toErrorText(e));
         } finally {
             busyRowId = null;
         }
@@ -619,15 +759,46 @@
             showToast("ok", "Unpublished");
             await loadList({ keepPage: true });
         } catch (e) {
-            if (e instanceof ApiError) showToast("err", `${e.code}: ${e.message}`);
-            else showToast("err", String(e));
+            showToast("err", toErrorText(e));
         } finally {
             busyRowId = null;
         }
     }
 
+    function toggleEducationSelection(categoryId: number, checked: boolean) {
+        const next = new Set(formEducationCategoryIds);
+        if (checked) next.add(categoryId);
+        else next.delete(categoryId);
+        formEducationCategoryIds = normalizeEducationSelection([...next]);
+    }
+
+    async function loadEducationCats() {
+        educationCatsLoading = true;
+        educationCatsError = null;
+
+        try {
+            const items = await getPublicEducationCategories();
+            const normalized = items
+                .map((item) => ({
+                    id: Number(item.id),
+                    name: String(item.name ?? "").trim(),
+                }))
+                .filter((item) => Number.isFinite(item.id) && item.id >= 1 && item.name !== "")
+                .map((item) => ({ id: Math.trunc(item.id), name: item.name }))
+                .sort((a, b) => a.name.localeCompare(b.name) || a.id - b.id);
+
+            educationCats = normalized;
+            educationNameById = Object.fromEntries(normalized.map((item) => [item.id, item.name]));
+            formEducationCategoryIds = formEducationCategoryIds.filter((id) => Boolean(educationNameById[id]));
+        } catch (e) {
+            educationCatsError = toErrorText(e, "Failed to load education categories");
+        } finally {
+            educationCatsLoading = false;
+        }
+    }
+
     onMount(() => {
-        void Promise.all([loadAgeCats(), loadList()]);
+        void Promise.all([loadAgeCats(), loadEducationCats(), loadList()]);
     });
 </script>
 
@@ -709,7 +880,7 @@
                 {mode === "create" ? "Create Game" : `Edit Game #${editId}`}
             </div>
             <div style="font-size: 12px; opacity:.7; margin-top: 2px;">
-                Title + Slug + Age Category + Free
+                Title + Slug + Age Category + Education Categories + Free
             </div>
         </div>
 
@@ -726,7 +897,7 @@
 
             <button
                     on:click={mode === "create" ? submitCreate : submitUpdate}
-                    disabled={submitting || ageCatsLoading || !!ageCatsError || ageCats.length === 0}
+                    disabled={submitting || ageCatsLoading || !!ageCatsError || ageCats.length === 0 || educationCatsLoading || !!educationCatsError}
                     style="padding: 8px 12px; border-radius: 10px; border: 1px solid #ddd; background: #111; color: #fff;"
             >
                 {submitting ? "Saving…" : mode === "create" ? "Create" : "Save"}
@@ -775,7 +946,7 @@
                     style="padding: 8px 10px; border-radius: 10px; border: 1px solid #ddd; background:#fff;"
             >
                 {#if !ageCatsLoading && !ageCatsError && ageCats.length === 0}
-                    <option value={1}>No age categories (create first)</option>
+                    <option value={null}>No age categories (create first)</option>
                 {:else}
                     {#each ageCats as a (a.id)}
                         <option value={a.id}>{ageCatText(a)}</option>
@@ -786,6 +957,50 @@
             {#if ageCatsError}
                 <div style="margin-top: 6px; font-size: 11px; color:#b42318;">
                     {ageCatsError}
+                </div>
+            {/if}
+        </div>
+
+        <div style="grid-column: span 12; display:grid; gap: 6px;">
+            <div style="font-size: 12px; opacity: .7; display:flex; align-items:center; justify-content:space-between; gap: 8px;">
+                <span>Education Categories</span>
+                {#if educationCatsLoading}
+                    <span style="font-size: 11px; opacity:.6;">Loading…</span>
+                {:else if educationCatsError}
+                    <button
+                            on:click={() => loadEducationCats()}
+                            style="padding: 4px 8px; border-radius: 999px; border: 1px solid #ddd; background:#fff; font-size: 11px;"
+                            type="button"
+                    >
+                        Retry
+                    </button>
+                {/if}
+            </div>
+
+            {#if educationCatsLoading}
+                <div style="font-size: 12px; opacity:.75; padding: 8px 10px; border: 1px solid #eee; border-radius: 10px;">
+                    Loading education categories...
+                </div>
+            {:else if educationCatsError}
+                <div style="font-size: 11px; color:#b42318;">
+                    {educationCatsError}
+                </div>
+            {:else if educationCats.length === 0}
+                <div style="font-size: 12px; opacity:.75; padding: 8px 10px; border: 1px solid #eee; border-radius: 10px;">
+                    No education categories found.
+                </div>
+            {:else}
+                <div style="padding: 10px; border: 1px solid #eee; border-radius: 10px; max-height: 180px; overflow:auto; display:grid; gap: 8px;">
+                    {#each educationCats as category (category.id)}
+                        <label style="display:flex; gap: 8px; align-items:center; font-size: 13px;">
+                            <input
+                                    type="checkbox"
+                                    checked={formEducationCategoryIds.includes(category.id)}
+                                    on:change={(e) => toggleEducationSelection(category.id, (e.currentTarget as HTMLInputElement).checked)}
+                            />
+                            <span>{category.name}</span>
+                        </label>
+                    {/each}
                 </div>
             {/if}
         </div>
@@ -843,13 +1058,14 @@
             </div>
         {:else}
             <div style="margin-top: 12px; overflow:auto; border: 1px solid #eee; border-radius: 14px; background:#fff;">
-                <table style="width: 100%; border-collapse: collapse; min-width: 1040px;">
+                <table style="width: 100%; border-collapse: collapse; min-width: 1180px;">
                     <thead>
                     <tr style="text-align:left; background:#fafafa;">
                         <th style="padding: 10px 12px; font-size: 12px; opacity:.7;">Title</th>
                         <th style="padding: 10px 12px; font-size: 12px; opacity:.7;">Slug</th>
                         <th style="padding: 10px 12px; font-size: 12px; opacity:.7;">Status</th>
-                        <th style="padding: 10px 12px; font-size: 12px; opacity:.7;">Age ID</th>
+                        <th style="padding: 10px 12px; font-size: 12px; opacity:.7;">Age</th>
+                        <th style="padding: 10px 12px; font-size: 12px; opacity:.7;">Education</th>
                         <th style="padding: 10px 12px; font-size: 12px; opacity:.7;">Updated</th>
                         <th style="padding: 10px 12px; font-size: 12px; opacity:.7;">Actions</th>
                     </tr>
@@ -859,9 +1075,39 @@
                     {#each items as g (g.id)}
                         <tr style="border-top: 1px solid #eee;">
                             <td style="padding: 10px 12px;">
-                                <div style="font-weight: 700;">{g.title}</div>
-                                <div style="font-size: 12px; opacity:.7;">
-                                    #{g.id} • {g.free ? "free" : "paid"}
+                                <div style="display:flex; align-items:center; gap: 10px;">
+                                    <div
+                                            style="
+                                            width: 36px;
+                                            height: 36px;
+                                            border-radius: 9px;
+                                            border: 1px solid #ddd;
+                                            background: #fff;
+                                            display:grid;
+                                            place-items:center;
+                                            overflow:hidden;
+                                            flex: 0 0 auto;
+                                        "
+                                    >
+                                        {#if hasGameIcon(g)}
+                                            <img
+                                                    src={gameIconUrl(g)}
+                                                    alt={g.title}
+                                                    loading="lazy"
+                                                    on:error={() => markIconError(g.id)}
+                                                    style="width:100%; height:100%; object-fit:cover; display:block;"
+                                            />
+                                        {:else}
+                                            <span style="font-size:18px; line-height:1;">🎮</span>
+                                        {/if}
+                                    </div>
+
+                                    <div style="min-width:0;">
+                                        <div style="font-weight: 700;">{g.title}</div>
+                                        <div style="font-size: 12px; opacity:.7;">
+                                            #{g.id} • {g.free ? "free" : "paid"}
+                                        </div>
+                                    </div>
                                 </div>
                             </td>
 
@@ -884,7 +1130,20 @@
                                     </span>
                             </td>
 
-                            <td style="padding: 10px 12px;">{g.age_category_id}</td>
+                            <td style="padding: 10px 12px;">
+                                <div>{gameAgeLabel(g)}</div>
+                                <div style="font-size: 12px; opacity:.7;">ID: {g.age_category_id}</div>
+                            </td>
+
+                            <td style="padding: 10px 12px; font-size: 12px; line-height: 1.35;">
+                                {#if gameEducationLabels(g).length > 0}
+                                    {#each gameEducationLabels(g) as name, i (i)}
+                                        <div>{name}</div>
+                                    {/each}
+                                {:else}
+                                    <span style="opacity:.6;">-</span>
+                                {/if}
+                            </td>
 
                             <td style="padding: 10px 12px; font-size: 13px; opacity:.8;">
                                 {formatDate(g.updated_at)}

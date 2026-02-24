@@ -4,6 +4,7 @@
     import { page } from "$app/stores";
 
     import { ApiError } from "$lib/api/client";
+    import { formatMappedError, mapApiError } from "$lib/api/errorMapper";
     import { getToken as getPlayerToken } from "$lib/auth/playerAuth";
     import { session } from "$lib/stores/session";
     import {
@@ -108,13 +109,21 @@
                 if (e instanceof ApiError && e.status === 401) {
                     selfData = emptySelf(gameId);
                 } else {
+                    const mapped = mapApiError(e, "Failed to load your rank.");
                     selfData = emptySelf(gameId);
-                    selfError = e instanceof ApiError ? `${e.code}: ${e.message}` : "Failed to load your rank.";
+                    selfError = formatMappedError(mapped, {
+                        includeCode: false,
+                        includeRequestId: true,
+                    });
                 }
             }
         } catch (e) {
+            const mapped = mapApiError(e, "Failed to load leaderboard.");
             stage = "error";
-            errorMsg = e instanceof ApiError ? `${e.code}: ${e.message}` : "Failed to load leaderboard.";
+            errorMsg = formatMappedError(mapped, {
+                includeCode: false,
+                includeRequestId: true,
+            });
         } finally {
             selfLoading = false;
         }

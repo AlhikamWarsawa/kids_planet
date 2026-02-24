@@ -1,7 +1,8 @@
 <script lang="ts">
     import { onMount } from "svelte";
     import { goto } from "$app/navigation";
-    import { api, ApiError } from "$lib/api/client";
+    import { api } from "$lib/api/client";
+    import { formatMappedError, mapApiError } from "$lib/api/errorMapper";
     import { auth } from "$lib/stores/auth";
 
     type LoginResponse = {
@@ -68,8 +69,10 @@
             await auth.setToken(data.access_token);
             await goto("/admin/dashboard");
         } catch (e) {
-            if (e instanceof ApiError) errorMsg = e.message || "Login gagal";
-            else errorMsg = "Login gagal";
+            errorMsg = formatMappedError(mapApiError(e, "Login gagal"), {
+                includeCode: false,
+                includeRequestId: true,
+            });
         } finally {
             loading = false;
         }
@@ -118,6 +121,7 @@
         >
             <div style="display: grid; gap: 8px; margin-bottom: 16px;">
                 <label
+                        for="admin-email"
                         style="
             font-weight: 600;
             font-size: 13px;
@@ -128,6 +132,7 @@
                     Email
                 </label>
                 <input
+                        id="admin-email"
                         bind:value={email}
                         type="email"
                         autocomplete="email"
@@ -157,6 +162,7 @@
 
             <div style="display: grid; gap: 8px; margin-bottom: 16px;">
                 <label
+                        for="admin-password"
                         style="
             font-weight: 600;
             font-size: 13px;
@@ -167,6 +173,7 @@
                     Password
                 </label>
                 <input
+                        id="admin-password"
                         bind:value={password}
                         type="password"
                         autocomplete="current-password"

@@ -1,19 +1,40 @@
 <script lang="ts">
     import type { GameListItem } from '$lib/types/game';
+    import { formatGameAgeTag, resolveGameIconUrl } from '$lib/utils/gameDisplay';
 
     export let game: GameListItem;
 
-    const ageLabel = (ageCategoryId: number) => `${ageCategoryId}+`;
+    let iconError = false;
+    let prevGameId = 0;
+
+    $: if (game?.id !== prevGameId) {
+        prevGameId = game?.id ?? 0;
+        iconError = false;
+    }
+
+    $: ageLabel = formatGameAgeTag(game);
+    $: iconUrl = resolveGameIconUrl(game);
+    $: educationText = (() => {
+        const names = Array.isArray(game?.education_categories)
+            ? game.education_categories
+                .map((category) => String(category?.name ?? '').trim())
+                .filter((name) => name !== '')
+            : [];
+
+        if (names.length > 0) return names.join(', ');
+        return '';
+    })();
 </script>
 
 <a class="card" href={`/player/games/${game.id}`} aria-label={`Play ${game.title}`}>
     <div class="thumb">
-        {#if game.thumbnail}
+        {#if iconUrl && !iconError}
             <img
-                    src={game.thumbnail}
+                    src={iconUrl}
                     alt={game.title}
                     loading="lazy"
                     decoding="async"
+                    on:error={() => (iconError = true)}
             />
         {:else}
             <div class="thumb-fallback" aria-hidden="true">
@@ -21,11 +42,14 @@
             </div>
         {/if}
 
-        <div class="badge">{ageLabel(game.age_category_id)}</div>
+        <div class="badge">{ageLabel}</div>
     </div>
 
     <div class="body">
         <div class="title" title={game.title}>{game.title}</div>
+        {#if educationText}
+            <div class="categories" title={educationText}>{educationText}</div>
+        {/if}
     </div>
 </a>
 
@@ -107,9 +131,22 @@
         line-height: 1.3;
         color: #1a1a1a;
         display: -webkit-box;
+        line-clamp: 2;
         -webkit-line-clamp: 2;
         -webkit-box-orient: vertical;
         overflow: hidden;
         letter-spacing: -0.2px;
+    }
+
+    .categories {
+        margin-top: 6px;
+        font-size: 12px;
+        line-height: 1.4;
+        color: #475569;
+        display: -webkit-box;
+        line-clamp: 2;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
     }
 </style>

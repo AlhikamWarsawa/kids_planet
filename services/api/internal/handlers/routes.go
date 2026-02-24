@@ -56,6 +56,9 @@ func Register(app *fiber.App, deps Deps) {
 	api.Get("/games", gamesHandler.List)
 	api.Get("/games/:id", gamesHandler.Get)
 
+	categoriesHandler := public.NewCategoriesHandler(categorySvc)
+	api.Get("/categories", categoriesHandler.List)
+
 	sessionsHandler := public.NewSessionsHandler(deps.Cfg, sessionSvc)
 	api.Post("/sessions/start", sessionsHandler.Start)
 

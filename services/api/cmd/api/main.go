@@ -49,6 +49,7 @@ func main() {
 		BodyLimit:    middleware.MaxRequestBodyBytes,
 	})
 
+	app.Use(middleware.RequestID())
 	app.Use(middleware.Recover())
 	app.Use(middleware.Logging())
 	app.Use(middleware.CORS())

@@ -4,12 +4,15 @@
     import { browser } from "$app/environment";
 
     import { session } from "$lib/stores/session";
-    import { ApiError } from "$lib/api/client";
+    import { formatMappedError, mapApiError } from "$lib/api/errorMapper";
     import { getGame } from "$lib/api/games";
     import type { GameDetail } from "$lib/types/game";
+    import { formatGameAgeTag, resolveGameIconUrl } from "$lib/utils/gameDisplay";
 
     import { getLeaderboard } from "$lib/api/leaderboard";
     import type { LeaderboardViewResponse, LeaderboardItem } from "$lib/api/leaderboard";
+    import { trackEvent } from "$lib/sdk/trackEvent";
+    import { isLoggedIn as isPlayerLoggedIn } from "$lib/auth/playerAuth";
 
     let gameId: number | null = null;
     let game: GameDetail | null = null;
@@ -26,6 +29,13 @@
 
     let initialized = false;
     let lastRouteId: string | null = null;
+    let iconError = false;
+    let trackedStartToken: string | null = null;
+    let trackedClickToken: string | null = null;
+
+    $: iconUrl = game ? resolveGameIconUrl(game) : null;
+    $: gameAgeTag = game ? formatGameAgeTag(game) : "Age N/A";
+    $: if (game?.id) iconError = false;
 
 
     function parseGameIdFromParam(raw: any): number | null {
@@ -105,6 +115,36 @@
         return `${m.slice(0, 10)}…${m.slice(-4)}`;
     }
 
+    function getPlayableTokenForHistory(): string | null {
+        if (!isPlayerLoggedIn()) return null;
+
+        const token = (session.getSnapshot().playToken ?? "").trim();
+        return token || null;
+    }
+
+    function trackHistoryStartIfNeeded() {
+        const token = getPlayableTokenForHistory();
+        if (!token || token === trackedStartToken) return;
+
+        trackedStartToken = token;
+        void trackEvent("game_start", {
+            source: "player_play_page",
+            game_id: gameId,
+        });
+    }
+
+    function trackHistoryClickIfNeeded() {
+        const token = getPlayableTokenForHistory();
+        if (!token || token === trackedClickToken) return;
+        if (stage !== "ready") return;
+
+        trackedClickToken = token;
+        void trackEvent("gameplay_click", {
+            source: "player_play_page_click",
+            game_id: gameId,
+        });
+    }
+
     async function loadLeaderboardForPlayPage() {
         if (!gameId) return;
 
@@ -127,7 +167,10 @@
             if (seq !== lbReqSeq) return;
 
             lbStage = "error";
-            lbError = e instanceof ApiError ? `${e.code}: ${e.message}` : "Failed to load leaderboard.";
+            lbError = formatMappedError(mapApiError(e, "Failed to load leaderboard."), {
+                includeCode: false,
+                includeRequestId: true,
+            });
         }
     }
 
@@ -157,11 +200,15 @@
         try {
             game = await getGame(gid);
         } catch (e) {
+            const mapped = mapApiError(e, "Failed to fetch game detail.");
             stage = "error";
-            if (e instanceof ApiError && e.status === 404) {
+            if (mapped.status === 404) {
                 errorMsg = "Game not found / not active.";
             } else {
-                errorMsg = e instanceof ApiError ? e.message : "Failed to fetch game detail.";
+                errorMsg = formatMappedError(mapped, {
+                    includeCode: false,
+                    includeRequestId: true,
+                });
             }
             return;
         }
@@ -182,22 +229,34 @@
                 expiresAt = snap.expiresAt;
             }
         } catch (e) {
+            const mapped = mapApiError(e, "Failed to start session.");
             stage = "error";
-            errorMsg = e instanceof ApiError ? e.message : "Failed to start session.";
+            errorMsg = formatMappedError(mapped, {
+                includeCode: false,
+                includeRequestId: true,
+            });
             return;
         }
 
         stage = "ready";
+        trackHistoryStartIfNeeded();
 
         await loadLeaderboardForPlayPage();
     }
 
-    onMount(async () => {
+    onMount(() => {
         session.loadFromStorage();
         initialized = true;
 
         lastRouteId = String(($page.params as any)?.id ?? "");
-        await run();
+        void run();
+
+        const onPointerDown = () => trackHistoryClickIfNeeded();
+        window.addEventListener("pointerdown", onPointerDown, true);
+
+        return () => {
+            window.removeEventListener("pointerdown", onPointerDown, true);
+        };
     });
 
     $: if (initialized && browser) {
@@ -223,11 +282,37 @@
 
         <div class="title">
             <div class="h1">{game?.title ?? "Play"}</div>
-            {#if expiresAt}
-                <div class="sub">Session expires: {formatExp(expiresAt)}</div>
-            {/if}
+            <div class="sub">
+                {#if game}
+                    <span class="ageChip">{gameAgeTag}</span>
+                {/if}
+                {#if expiresAt}
+                    <span>Session expires: {formatExp(expiresAt)}</span>
+                {/if}
+            </div>
         </div>
     </header>
+
+    {#if game}
+        <section class="gameMetaPanel" aria-label="Game summary">
+            <div class="iconWrap" aria-hidden="true">
+                {#if iconUrl && !iconError}
+                    <img src={iconUrl} alt={game.title} on:error={() => (iconError = true)} />
+                {:else}
+                    <span class="iconFallback">🎮</span>
+                {/if}
+            </div>
+            <div class="metaText">
+                <div class="metaTitle">{game.title}</div>
+                <div class="metaTags">
+                    <span class="ageTag">{gameAgeTag}</span>
+                    {#if game.free}
+                        <span class="freeTag">Free</span>
+                    {/if}
+                </div>
+            </div>
+        </section>
+    {/if}
 
     {#if stage === "loading_game"}
         <div class="state">
@@ -306,7 +391,7 @@
                     allowfullscreen
                     allow="fullscreen; gamepad; autoplay"
                     sandbox="allow-scripts allow-same-origin allow-forms allow-pointer-lock"
-            />
+            ></iframe>
         </section>
     {/if}
 </main>
@@ -343,9 +428,24 @@
 
     .sub {
         font-size: 12px;
-        opacity: 0.7;
         color: #222;
-        margin-top: 2px;
+        margin-top: 4px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+        opacity: 0.8;
+    }
+
+    .ageChip {
+        display: inline-flex;
+        align-items: center;
+        padding: 3px 8px;
+        border-radius: 999px;
+        border: 2px solid #666;
+        background: #fff;
+        font-weight: 900;
+        font-size: 11px;
     }
 
     .pill {
@@ -396,6 +496,79 @@
     .mt { margin-top: 12px; }
 
     .rowBtns { display: flex; gap: 10px; flex-wrap: wrap; }
+
+    .gameMetaPanel {
+        border: 4px solid #666;
+        border-radius: 14px;
+        padding: 10px 12px;
+        background: #fff;
+        margin-bottom: 12px;
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        max-width: 920px;
+    }
+
+    .iconWrap {
+        width: 56px;
+        height: 56px;
+        border-radius: 12px;
+        border: 3px solid #666;
+        background: #fff;
+        display: grid;
+        place-items: center;
+        flex: 0 0 auto;
+        overflow: hidden;
+    }
+
+    .iconWrap img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+    }
+
+    .iconFallback {
+        font-size: 30px;
+        line-height: 1;
+    }
+
+    .metaText {
+        min-width: 0;
+        display: grid;
+        gap: 4px;
+    }
+
+    .metaTitle {
+        font-weight: 900;
+        font-size: 14px;
+        color: #222;
+    }
+
+    .metaTags {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        flex-wrap: wrap;
+    }
+
+    .ageTag,
+    .freeTag {
+        display: inline-flex;
+        align-items: center;
+        font-size: 11px;
+        font-weight: 900;
+        border-radius: 999px;
+        border: 2px solid #666;
+        padding: 3px 8px;
+        background: #fff;
+        color: #222;
+    }
+
+    .freeTag {
+        border-color: #16a34a;
+        color: #166534;
+    }
 
 
     .lbPanel {
@@ -509,5 +682,13 @@
         .h1 { font-size: 20px; }
         .frameWrap { height: min(68vh, 760px); }
         .lbRow { grid-template-columns: 80px 1fr 140px; }
+        .gameMetaPanel { padding: 12px 14px; }
+        .metaTitle { font-size: 16px; }
+    }
+
+    @media (max-width: 640px) {
+        .gameMetaPanel {
+            align-items: flex-start;
+        }
     }
 </style>

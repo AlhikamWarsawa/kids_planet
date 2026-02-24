@@ -6,12 +6,28 @@
     export let title = '';
     export let options: Option[] = [];
     export let selectedId: number | null = null;
+    export let selectedIds: number[] = [];
+    export let multiple = false;
 
     const dispatch = createEventDispatcher<{
         close: void;
-        select: { id: number; label: string };
+        select: { id: number; label: string; ids?: number[]; labels?: string[] };
         clear: void;
     }>();
+
+    let draftIds: number[] = [];
+    let wasOpen = false;
+
+    function normalizeIds(value: number[]): number[] {
+        return value.filter((id) => Number.isFinite(id) && id >= 1);
+    }
+
+    $: if (open && !wasOpen) {
+        wasOpen = true;
+        draftIds = normalizeIds(selectedIds);
+    } else if (!open && wasOpen) {
+        wasOpen = false;
+    }
 
     function close() {
         dispatch('close');
@@ -22,13 +38,45 @@
         close();
     }
 
-    function selectOpt(opt: Option) {
-        dispatch('select', { id: opt.id, label: opt.label });
+    function isActive(id: number): boolean {
+        if (multiple) return draftIds.includes(id);
+        return selectedId === id;
+    }
+
+    function toggleDraft(id: number) {
+        if (draftIds.includes(id)) {
+            draftIds = draftIds.filter((x) => x !== id);
+            return;
+        }
+        draftIds = [...draftIds, id];
+    }
+
+    function applyMultiple() {
+        const ids = normalizeIds(draftIds);
+        const labels = options.filter((opt) => ids.includes(opt.id)).map((opt) => opt.label);
+        dispatch('select', { id: ids[0] ?? 0, label: labels[0] ?? '', ids, labels });
         close();
     }
 
-    function onBackdrop(e: MouseEvent) {
-        if (e.currentTarget === e.target) close();
+    function selectOpt(opt: Option) {
+        if (multiple) {
+            toggleDraft(opt.id);
+            return;
+        }
+
+        dispatch('select', { id: opt.id, label: opt.label, ids: [opt.id], labels: [opt.label] });
+        close();
+    }
+
+    function onBackdrop() {
+        close();
+    }
+
+    function onOverlayKeydown(e: KeyboardEvent) {
+        if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            close();
+        }
     }
 
     onMount(() => {
@@ -44,8 +92,11 @@
 {#if open}
     <div
             class="overlay"
-            on:click={onBackdrop}
-            aria-hidden="false"
+            role="button"
+            tabindex="0"
+            aria-label={`Close ${title} modal`}
+            on:click|self={onBackdrop}
+            on:keydown={onOverlayKeydown}
     >
         <div
                 class="modal"
@@ -53,7 +104,6 @@
                 aria-modal="true"
                 aria-label={title}
                 tabindex="0"
-                on:click|stopPropagation
         >
             <div class="modal-head">
                 <div class="modal-title">{title}</div>
@@ -66,7 +116,7 @@
                 {#each options as opt (opt.id)}
                     <button
                             type="button"
-                            class="card {selectedId === opt.id ? 'active' : ''}"
+                            class="card {isActive(opt.id) ? 'active' : ''}"
                             on:click={() => selectOpt(opt)}
                     >
                         {opt.label}
@@ -75,6 +125,11 @@
             </div>
 
             <div class="modal-foot">
+                {#if multiple}
+                    <button class="pill ghost" type="button" on:click={applyMultiple}>
+                        Apply
+                    </button>
+                {/if}
                 <button class="pill" type="button" on:click={close}>
                     Close
                 </button>
@@ -149,6 +204,7 @@
 
     .modal-foot {
         display: flex;
+        gap: 10px;
         justify-content: center;
         margin-top: 14px;
     }

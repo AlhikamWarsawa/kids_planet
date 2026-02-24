@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -55,26 +56,146 @@ type GameListDTO struct {
 	Total int               `json:"total"`
 }
 
+type PublicEducationCategoryDTO struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
+}
+
 type GameListItemDTO struct {
-	ID            int64   `json:"id"`
-	Title         string  `json:"title"`
-	Slug          string  `json:"slug"`
-	Thumbnail     *string `json:"thumbnail"`
-	GameURL       *string `json:"game_url"`
-	AgeCategoryID int64   `json:"age_category_id"`
-	Free          bool    `json:"free"`
-	CreatedAt     string  `json:"created_at"`
+	ID                   int64                        `json:"id"`
+	Title                string                       `json:"title"`
+	Slug                 string                       `json:"slug"`
+	Thumbnail            *string                      `json:"thumbnail"`
+	GameURL              *string                      `json:"game_url"`
+	AgeCategoryID        int64                        `json:"age_category_id"`
+	AgeLabel             *string                      `json:"age_label,omitempty"`
+	MinAge               *int                         `json:"min_age,omitempty"`
+	MaxAge               *int                         `json:"max_age,omitempty"`
+	EducationCategoryIDs []int64                      `json:"education_category_ids,omitempty"`
+	EducationCategories  []PublicEducationCategoryDTO `json:"education_categories,omitempty"`
+	PlayCount            int64                        `json:"play_count"`
+	Free                 bool                         `json:"free"`
+	CreatedAt            string                       `json:"created_at"`
 }
 
 type GameDetailDTO struct {
-	ID            int64   `json:"id"`
-	Title         string  `json:"title"`
-	Slug          string  `json:"slug"`
-	Thumbnail     *string `json:"thumbnail"`
-	GameURL       *string `json:"game_url"`
-	AgeCategoryID int64   `json:"age_category_id"`
-	Free          bool    `json:"free"`
-	CreatedAt     string  `json:"created_at"`
+	ID                   int64                        `json:"id"`
+	Title                string                       `json:"title"`
+	Slug                 string                       `json:"slug"`
+	Thumbnail            *string                      `json:"thumbnail"`
+	GameURL              *string                      `json:"game_url"`
+	AgeCategoryID        int64                        `json:"age_category_id"`
+	AgeLabel             *string                      `json:"age_label,omitempty"`
+	MinAge               *int                         `json:"min_age,omitempty"`
+	MaxAge               *int                         `json:"max_age,omitempty"`
+	EducationCategoryIDs []int64                      `json:"education_category_ids,omitempty"`
+	EducationCategories  []PublicEducationCategoryDTO `json:"education_categories,omitempty"`
+	PlayCount            int64                        `json:"play_count"`
+	Free                 bool                         `json:"free"`
+	CreatedAt            string                       `json:"created_at"`
+}
+
+type publicEducationCategoryRow struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
+}
+
+func toNullableString(value sql.NullString) *string {
+	if !value.Valid {
+		return nil
+	}
+	text := strings.TrimSpace(value.String)
+	if text == "" {
+		return nil
+	}
+	return &text
+}
+
+func toNullableInt(value sql.NullInt64) *int {
+	if !value.Valid {
+		return nil
+	}
+	num := int(value.Int64)
+	return &num
+}
+
+func parseEducationCategoryIDs(raw []byte) []int64 {
+	if len(raw) == 0 {
+		return []int64{}
+	}
+
+	var ids []int64
+	if err := json.Unmarshal(raw, &ids); err != nil {
+		return []int64{}
+	}
+	out := make([]int64, 0, len(ids))
+	for _, id := range ids {
+		if id < 1 {
+			continue
+		}
+		out = append(out, id)
+	}
+	return out
+}
+
+func parseEducationCategories(raw []byte) []PublicEducationCategoryDTO {
+	if len(raw) == 0 {
+		return []PublicEducationCategoryDTO{}
+	}
+
+	var rows []publicEducationCategoryRow
+	if err := json.Unmarshal(raw, &rows); err != nil {
+		return []PublicEducationCategoryDTO{}
+	}
+
+	out := make([]PublicEducationCategoryDTO, 0, len(rows))
+	for _, row := range rows {
+		if row.ID < 1 {
+			continue
+		}
+		name := strings.TrimSpace(row.Name)
+		if name == "" {
+			continue
+		}
+
+		out = append(out, PublicEducationCategoryDTO{
+			ID:   row.ID,
+			Name: name,
+		})
+	}
+	return out
+}
+
+func sanitizeEducationCategoryIDs(ids []int64) ([]int64, error) {
+	if len(ids) == 0 {
+		return []int64{}, nil
+	}
+
+	seen := make(map[int64]struct{}, len(ids))
+	out := make([]int64, 0, len(ids))
+	for _, id := range ids {
+		if id < 1 {
+			return nil, utils.ErrBadRequest("education_category_ids must contain integers >= 1")
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out, nil
+}
+
+func toAdminEducationCategories(raw []byte) []models.AdminEducationCategoryDTO {
+	publicCategories := parseEducationCategories(raw)
+	out := make([]models.AdminEducationCategoryDTO, 0, len(publicCategories))
+	for _, category := range publicCategories {
+		out = append(out, models.AdminEducationCategoryDTO{
+			ID:   category.ID,
+			Name: category.Name,
+		})
+	}
+	return out
 }
 
 func (s *GameService) ListPublicGames(ctx context.Context, in ListPublicGamesInput) (*GameListDTO, error) {
@@ -144,27 +265,29 @@ func (s *GameService) ListPublicGames(ctx context.Context, in ListPublicGamesInp
 
 	out := make([]GameListItemDTO, 0, len(items))
 	for _, it := range items {
-		var thumb *string
-		if it.Thumbnail.Valid {
-			v := it.Thumbnail.String
-			thumb = &v
-		}
-
-		var url *string
-		if it.GameURL.Valid {
-			v := it.GameURL.String
-			url = &v
-		}
+		thumb := toNullableString(it.Thumbnail)
+		url := toNullableString(it.GameURL)
+		ageLabel := toNullableString(it.AgeLabel)
+		minAge := toNullableInt(it.MinAge)
+		maxAge := toNullableInt(it.MaxAge)
+		educationCategoryIDs := parseEducationCategoryIDs(it.EducationCategoryIDsJSON)
+		educationCategories := parseEducationCategories(it.EducationCategoriesJSON)
 
 		out = append(out, GameListItemDTO{
-			ID:            it.ID,
-			Title:         it.Title,
-			Slug:          it.Slug,
-			Thumbnail:     thumb,
-			GameURL:       url,
-			AgeCategoryID: it.AgeCategoryID,
-			Free:          it.Free,
-			CreatedAt:     it.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
+			ID:                   it.ID,
+			Title:                it.Title,
+			Slug:                 it.Slug,
+			Thumbnail:            thumb,
+			GameURL:              url,
+			AgeCategoryID:        it.AgeCategoryID,
+			AgeLabel:             ageLabel,
+			MinAge:               minAge,
+			MaxAge:               maxAge,
+			EducationCategoryIDs: educationCategoryIDs,
+			EducationCategories:  educationCategories,
+			PlayCount:            it.PlayCount,
+			Free:                 it.Free,
+			CreatedAt:            it.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
 		})
 	}
 
@@ -189,27 +312,29 @@ func (s *GameService) GetPublicGameByID(ctx context.Context, id int64) (*GameDet
 		return nil, utils.ErrInternal()
 	}
 
-	var thumb *string
-	if it.Thumbnail.Valid {
-		v := it.Thumbnail.String
-		thumb = &v
-	}
-
-	var url *string
-	if it.GameURL.Valid {
-		v := it.GameURL.String
-		url = &v
-	}
+	thumb := toNullableString(it.Thumbnail)
+	url := toNullableString(it.GameURL)
+	ageLabel := toNullableString(it.AgeLabel)
+	minAge := toNullableInt(it.MinAge)
+	maxAge := toNullableInt(it.MaxAge)
+	educationCategoryIDs := parseEducationCategoryIDs(it.EducationCategoryIDsJSON)
+	educationCategories := parseEducationCategories(it.EducationCategoriesJSON)
 
 	return &GameDetailDTO{
-		ID:            it.ID,
-		Title:         it.Title,
-		Slug:          it.Slug,
-		Thumbnail:     thumb,
-		GameURL:       url,
-		AgeCategoryID: it.AgeCategoryID,
-		Free:          it.Free,
-		CreatedAt:     it.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
+		ID:                   it.ID,
+		Title:                it.Title,
+		Slug:                 it.Slug,
+		Thumbnail:            thumb,
+		GameURL:              url,
+		AgeCategoryID:        it.AgeCategoryID,
+		AgeLabel:             ageLabel,
+		MinAge:               minAge,
+		MaxAge:               maxAge,
+		EducationCategoryIDs: educationCategoryIDs,
+		EducationCategories:  educationCategories,
+		PlayCount:            it.PlayCount,
+		Free:                 it.Free,
+		CreatedAt:            it.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
 	}, nil
 }
 
@@ -316,12 +441,27 @@ func (s *GameService) CreateAdminGame(ctx context.Context, createdBy int64, req 
 		return nil, utils.ErrInternal()
 	}
 
+	educationCategoryIDs, sanitizeErr := sanitizeEducationCategoryIDs(req.EducationCategoryIDs)
+	if sanitizeErr != nil {
+		return nil, sanitizeErr
+	}
+
 	ok, err := s.gameRepo.AgeCategoryExists(ctx, req.AgeCategoryID)
 	if err != nil {
 		return nil, utils.ErrInternal()
 	}
 	if !ok {
 		return nil, utils.ErrBadRequest("age_category_id not found")
+	}
+
+	if len(educationCategoryIDs) > 0 {
+		ok, err := s.gameRepo.EducationCategoryIDsExist(ctx, educationCategoryIDs)
+		if err != nil {
+			return nil, utils.ErrInternal()
+		}
+		if !ok {
+			return nil, utils.ErrBadRequest("one or more education_category_ids not found")
+		}
 	}
 
 	exists, err := s.gameRepo.SlugExists(ctx, slug, nil)
@@ -355,6 +495,15 @@ func (s *GameService) CreateAdminGame(ctx context.Context, createdBy int64, req 
 		Free:          free,
 		CreatedBy:     createdBy,
 	})
+	if err != nil {
+		return nil, utils.ErrInternal()
+	}
+
+	if err := s.gameRepo.ReplaceGameEducationCategories(ctx, g.ID, educationCategoryIDs); err != nil {
+		return nil, utils.ErrInternal()
+	}
+
+	g, err = s.gameRepo.GetByID(ctx, g.ID)
 	if err != nil {
 		return nil, utils.ErrInternal()
 	}
@@ -422,7 +571,27 @@ func (s *GameService) UpdateAdminGame(ctx context.Context, id int64, req models.
 		}
 	}
 
-	g, err := s.gameRepo.UpdateAdminGame(ctx, id, repos.UpdateAdminGameInput{
+	shouldUpdateEducationCategories := req.EducationCategoryIDs != nil
+	normalizedEducationCategoryIDs := []int64{}
+	if shouldUpdateEducationCategories {
+		var sanitizeErr error
+		normalizedEducationCategoryIDs, sanitizeErr = sanitizeEducationCategoryIDs(*req.EducationCategoryIDs)
+		if sanitizeErr != nil {
+			return nil, sanitizeErr
+		}
+
+		if len(normalizedEducationCategoryIDs) > 0 {
+			ok, err := s.gameRepo.EducationCategoryIDsExist(ctx, normalizedEducationCategoryIDs)
+			if err != nil {
+				return nil, utils.ErrInternal()
+			}
+			if !ok {
+				return nil, utils.ErrBadRequest("one or more education_category_ids not found")
+			}
+		}
+	}
+
+	_, err = s.gameRepo.UpdateAdminGame(ctx, id, repos.UpdateAdminGameInput{
 		Title:         req.Title,
 		Slug:          req.Slug,
 		Thumbnail:     req.Thumbnail,
@@ -430,6 +599,20 @@ func (s *GameService) UpdateAdminGame(ctx context.Context, id int64, req models.
 		AgeCategoryID: req.AgeCategoryID,
 		Free:          req.Free,
 	})
+	if err != nil {
+		if errors.Is(err, repos.ErrNotFound) {
+			return nil, utils.ErrNotFound("game not found")
+		}
+		return nil, utils.ErrInternal()
+	}
+
+	if shouldUpdateEducationCategories {
+		if err := s.gameRepo.ReplaceGameEducationCategories(ctx, id, normalizedEducationCategoryIDs); err != nil {
+			return nil, utils.ErrInternal()
+		}
+	}
+
+	g, err := s.gameRepo.GetByID(ctx, id)
 	if err != nil {
 		if errors.Is(err, repos.ErrNotFound) {
 			return nil, utils.ErrNotFound("game not found")
@@ -465,6 +648,14 @@ func (s *GameService) PublishAdminGame(ctx context.Context, id int64) (*models.A
 		return nil, utils.ErrInternal()
 	}
 
+	g, err = s.gameRepo.GetByID(ctx, g.ID)
+	if err != nil {
+		if errors.Is(err, repos.ErrNotFound) {
+			return nil, utils.ErrNotFound("game not found")
+		}
+		return nil, utils.ErrInternal()
+	}
+
 	dto := toAdminGameDTO(*g)
 	return &dto, nil
 }
@@ -486,6 +677,14 @@ func (s *GameService) UnpublishAdminGame(ctx context.Context, id int64) (*models
 	}
 
 	g, err := s.gameRepo.SetStatus(ctx, id, "draft")
+	if err != nil {
+		if errors.Is(err, repos.ErrNotFound) {
+			return nil, utils.ErrNotFound("game not found")
+		}
+		return nil, utils.ErrInternal()
+	}
+
+	g, err = s.gameRepo.GetByID(ctx, g.ID)
 	if err != nil {
 		if errors.Is(err, repos.ErrNotFound) {
 			return nil, utils.ErrNotFound("game not found")
@@ -929,16 +1128,21 @@ func toAdminGameDTO(g repos.Game) models.AdminGameDTO {
 		url = g.GameURL.String
 	}
 
+	educationCategoryIDs := parseEducationCategoryIDs(g.EducationCategoryIDsJSON)
+	educationCategories := toAdminEducationCategories(g.EducationCategoriesJSON)
+
 	return models.AdminGameDTO{
-		ID:            g.ID,
-		Title:         g.Title,
-		Slug:          g.Slug,
-		Status:        models.GameStatus(g.Status),
-		Thumbnail:     thumb,
-		GameURL:       url,
-		AgeCategoryID: g.AgeCategoryID,
-		Free:          g.Free,
-		CreatedAt:     g.CreatedAt,
-		UpdatedAt:     g.UpdatedAt,
+		ID:                   g.ID,
+		Title:                g.Title,
+		Slug:                 g.Slug,
+		Status:               models.GameStatus(g.Status),
+		Thumbnail:            thumb,
+		GameURL:              url,
+		AgeCategoryID:        g.AgeCategoryID,
+		EducationCategoryIDs: educationCategoryIDs,
+		EducationCategories:  educationCategories,
+		Free:                 g.Free,
+		CreatedAt:            g.CreatedAt,
+		UpdatedAt:            g.UpdatedAt,
 	}
 }

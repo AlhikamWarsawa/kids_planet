@@ -1,7 +1,7 @@
 <script lang="ts">
     import { onMount } from "svelte";
 
-    import { ApiError } from "$lib/api/client";
+    import { mapApiError, formatMappedError } from "$lib/api/errorMapper";
     import { getPlayerHistory, type PlayerHistoryItem } from "$lib/api/history";
     import { isLoggedIn } from "$lib/auth/playerAuth";
 
@@ -64,15 +64,11 @@
             limit = res.pagination?.limit ?? DEFAULT_LIMIT;
             total = res.pagination?.total ?? 0;
         } catch (e) {
-            if (e instanceof ApiError) {
-                unauthorized = e.status === 401;
-                errorMsg =
-                    e.status === 401
-                        ? "Sesi player tidak valid. Silakan login ulang."
-                        : e.message || "Gagal memuat history.";
-            } else {
-                errorMsg = "Gagal memuat history.";
-            }
+            const mapped = mapApiError(e, "Gagal memuat history.");
+            unauthorized = mapped.status === 401;
+            errorMsg = unauthorized
+                ? "Sesi player tidak valid. Silakan login ulang."
+                : formatMappedError(mapped, { includeCode: false, includeRequestId: true });
 
             if (initial) {
                 items = [];

@@ -1,7 +1,8 @@
 <script lang="ts">
     import { onMount } from "svelte";
     import { auth } from "$lib/stores/auth";
-    import { ApiError, createApiClient } from "$lib/api/client";
+    import { createApiClient } from "$lib/api/client";
+    import { formatMappedError, mapApiError } from "$lib/api/errorMapper";
 
     type Tab = "age" | "education";
     let tab: Tab = "age";
@@ -23,8 +24,6 @@
     type EducationCategoryDTO = {
         id: number;
         name: string;
-        icon: string | null;
-        color: string | null;
         created_at?: string;
     };
 
@@ -38,13 +37,16 @@
         toastTimer = setTimeout(() => (toast = null), 2200);
     }
 
+    function toErrorText(error: unknown, fallback = "Request failed") {
+        return formatMappedError(mapApiError(error, fallback), {
+            includeCode: false,
+            includeRequestId: true,
+        });
+    }
+
     function clampInt(n: number, min: number, max: number) {
         if (!Number.isFinite(n)) return min;
         return Math.max(min, Math.min(max, Math.trunc(n)));
-    }
-
-    function isHexColor(s: string) {
-        return /^#[0-9a-fA-F]{6}$/.test(s.trim());
     }
 
     function pickId(obj: any): number | null {
@@ -105,8 +107,7 @@
             if (typeof data?.page === "number") agePage = clampInt(data.page, 1, 1_000_000);
             if (typeof data?.limit === "number") ageLimit = clampInt(data.limit, 1, 100);
         } catch (e) {
-            if (e instanceof ApiError) ageError = `${e.code}: ${e.message}`;
-            else ageError = String(e);
+            ageError = toErrorText(e, "Failed to load age categories");
         } finally {
             ageLoading = false;
         }
@@ -173,8 +174,7 @@
                 await loadAge({ keepPage: true });
             }
         } catch (e) {
-            if (e instanceof ApiError) showToast("err", `${e.code}: ${e.message}`);
-            else showToast("err", String(e));
+            showToast("err", toErrorText(e));
         } finally {
             ageSubmitting = false;
         }
@@ -204,8 +204,7 @@
                 await loadAge({ keepPage: true });
             }
         } catch (e) {
-            if (e instanceof ApiError) showToast("err", `${e.code}: ${e.message}`);
-            else showToast("err", String(e));
+            showToast("err", toErrorText(e));
         } finally {
             ageBusyRowId = null;
         }
@@ -236,20 +235,14 @@
     let eduEditId: number | null = null;
 
     let eduName = "";
-    let eduIcon = "";
-    let eduColor = "";
     let eduSubmitting = false;
     let eduBusyRowId: number | null = null;
 
     function normalizeEduItem(raw: any): EducationCategoryDTO {
         const id = pickId(raw) ?? 0;
-        const icon = raw?.icon ?? raw?.Icon ?? null;
-        const color = raw?.color ?? raw?.Color ?? null;
         return {
             id,
             name: String(raw?.name ?? raw?.Name ?? ""),
-            icon: icon == null ? null : String(icon),
-            color: color == null ? null : String(color),
             created_at: raw?.created_at ?? raw?.CreatedAt,
         };
     }
@@ -276,8 +269,7 @@
             if (typeof data?.page === "number") eduPage = clampInt(data.page, 1, 1_000_000);
             if (typeof data?.limit === "number") eduLimit = clampInt(data.limit, 1, 100);
         } catch (e) {
-            if (e instanceof ApiError) eduError = `${e.code}: ${e.message}`;
-            else eduError = String(e);
+            eduError = toErrorText(e, "Failed to load education categories");
         } finally {
             eduLoading = false;
         }
@@ -287,8 +279,6 @@
         eduMode = "create";
         eduEditId = null;
         eduName = "";
-        eduIcon = "";
-        eduColor = "";
     }
 
     function startEditEdu(it: EducationCategoryDTO) {
@@ -300,21 +290,14 @@
         eduMode = "edit";
         eduEditId = id;
         eduName = it.name ?? "";
-        eduIcon = it.icon ?? "";
-        eduColor = it.color ?? "";
         showToast("ok", "Edit education category");
     }
 
     function validateEduForm() {
         const name = eduName.trim();
-        const icon = eduIcon.trim();
-        const color = eduColor.trim();
 
         if (!name) return "name is required";
         if (name.length > 100) return "name max length is 100";
-
-        if (icon && icon.length > 100) return "icon max length is 100";
-        if (color && !isHexColor(color)) return "color must be hex like #RRGGBB";
 
         return null;
     }
@@ -325,13 +308,8 @@
 
         eduSubmitting = true;
         try {
-            const icon = eduIcon.trim();
-            const color = eduColor.trim();
-
             const payload = {
                 name: eduName.trim(),
-                icon: icon ? icon : null,
-                color: color ? color : null,
             };
 
             if (eduMode === "create") {
@@ -347,8 +325,7 @@
                 await loadEdu({ keepPage: true });
             }
         } catch (e) {
-            if (e instanceof ApiError) showToast("err", `${e.code}: ${e.message}`);
-            else showToast("err", String(e));
+            showToast("err", toErrorText(e));
         } finally {
             eduSubmitting = false;
         }
@@ -378,8 +355,7 @@
                 await loadEdu({ keepPage: true });
             }
         } catch (e) {
-            if (e instanceof ApiError) showToast("err", `${e.code}: ${e.message}`);
-            else showToast("err", String(e));
+            showToast("err", toErrorText(e));
         } finally {
             eduBusyRowId = null;
         }
@@ -711,29 +687,11 @@
         </div>
 
         <div style="margin-top: 12px; display:grid; grid-template-columns: repeat(12, 1fr); gap: 10px;">
-            <div style="grid-column: span 6; display:grid; gap: 6px;">
+            <div style="grid-column: span 12; display:grid; gap: 6px;">
                 <div style="font-size: 12px; opacity: .7;">Name</div>
                 <input
                         bind:value={eduName}
                         placeholder="Memory"
-                        style="padding: 8px 10px; border-radius: 10px; border: 1px solid #ddd; background:#fff;"
-                />
-            </div>
-
-            <div style="grid-column: span 3; display:grid; gap: 6px;">
-                <div style="font-size: 12px; opacity: .7;">Icon</div>
-                <input
-                        bind:value={eduIcon}
-                        placeholder="brain"
-                        style="padding: 8px 10px; border-radius: 10px; border: 1px solid #ddd; background:#fff;"
-                />
-            </div>
-
-            <div style="grid-column: span 3; display:grid; gap: 6px;">
-                <div style="font-size: 12px; opacity: .7;">Color</div>
-                <input
-                        bind:value={eduColor}
-                        placeholder="#RRGGBB"
                         style="padding: 8px 10px; border-radius: 10px; border: 1px solid #ddd; background:#fff;"
                 />
             </div>
@@ -789,30 +747,15 @@
                         <thead>
                         <tr style="text-align:left; background:#fafafa;">
                             <th style="padding: 10px 12px; font-size: 12px; opacity:.7;">Name</th>
-                            <th style="padding: 10px 12px; font-size: 12px; opacity:.7;">Icon</th>
-                            <th style="padding: 10px 12px; font-size: 12px; opacity:.7;">Color</th>
                             <th style="padding: 10px 12px; font-size: 12px; opacity:.7;">Actions</th>
                         </tr>
                         </thead>
                         <tbody>
-                        {#each eduItems as it, i (makeKey("edu", it.id >= 1 ? it.id : null, `${it.name}-${it.icon ?? ""}-${it.color ?? ""}`, i))}
+                        {#each eduItems as it, i (makeKey("edu", it.id >= 1 ? it.id : null, `${it.name}`, i))}
                             <tr style="border-top: 1px solid #eee;">
                                 <td style="padding: 10px 12px;">
                                     <div style="font-weight: 700;">{it.name}</div>
                                     <div style="font-size: 12px; opacity:.7;">#{it.id || "?"}</div>
-                                </td>
-                                <td style="padding: 10px 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px;">
-                                    {it.icon ?? ""}
-                                </td>
-                                <td style="padding: 10px 12px;">
-                                    <div style="display:flex; align-items:center; gap: 10px;">
-                                            <span style="font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px;">
-                                                {it.color ?? ""}
-                                            </span>
-                                        {#if it.color}
-                                            <span style="display:inline-block; width: 14px; height: 14px; border-radius: 4px; border: 1px solid #ddd; background:{it.color};"></span>
-                                        {/if}
-                                    </div>
                                 </td>
                                 <td style="padding: 10px 12px;">
                                     <div style="display:flex; gap: 8px; flex-wrap: wrap;">
