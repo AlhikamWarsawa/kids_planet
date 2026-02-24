@@ -4,8 +4,9 @@ info:
   title: Kids Planet Game Portal API
   version: 0.2.0
   description: |
-    API for Kids Planet educational HTML5 game portal (Player + Admin + Game SDK).
-    Served behind Nginx reverse proxy where /api/* is forwarded to the Go API root.
+    API for Kids Planet educational HTML5 game portal (Player + Admin).
+    Served behind Nginx reverse proxy where /api/* is forwarded to the Go API root,
+    and game assets are served under /games/*.
 
 servers:
   - url: /api
@@ -13,17 +14,33 @@ servers:
 
 tags:
   - name: System
-  - name: Auth
+    description: System health and liveness
+  - name: Public Games
+    description: Public catalog and game detail
+  - name: Public Categories
+    description: Public category listing
   - name: Sessions
-  - name: Games
-  - name: Leaderboard
-  - name: Achievements
+    description: Gameplay session lifecycle
   - name: Analytics
+    description: Gameplay analytics ingestion
+  - name: Leaderboard
+    description: Leaderboard submit and read APIs
+  - name: Player Auth
+    description: Optional player account authentication
+  - name: Player History
+    description: Player gameplay history
+  - name: Admin Auth
+    description: Admin authentication endpoints
+  - name: Admin Profile
+    description: Admin identity endpoints
   - name: Admin Dashboard
+    description: Admin dashboard metrics
   - name: Admin Games
+    description: Admin game management and ZIP upload
   - name: Admin Categories
-  - name: Admin Achievements
+    description: Admin age and education category management
   - name: Admin Moderation
+    description: Leaderboard moderation operations
 
 paths:
   /health:
@@ -31,19 +48,21 @@ paths:
       tags: [System]
       summary: Health check
       description: |
-        Liveness endpoint. In non-prod, you can simulate an error via ?fail=1.
+        Liveness endpoint. In non-prod, you can simulate an error via `?fail=1`.
       parameters:
         - in: query
           name: fail
-          schema: { type: string, example: "1" }
           required: false
-          description: Non-prod only. When set to "1", returns BAD_REQUEST (simulated).
+          schema:
+            type: string
+            example: "1"
       responses:
         "200":
-          description: OK
+          description: Service is healthy
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/SuccessResponse" }
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
               examples:
                 ok:
                   value:
@@ -53,723 +72,93 @@ paths:
                       env: dev
                       time: "2026-01-17T04:09:24Z"
         "400":
-          description: Simulated error
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
+          $ref: "#/components/responses/BadRequest"
 
   /games:
     get:
-      tags: [Games]
-      summary: List games for catalog (grid)
+      tags: [Public Games]
+      summary: List active games
       description: |
-        Public endpoint for catalog listing with filter & sort.
-        Returns only active games.
-        Note: sort=popular is accepted as placeholder and currently falls back to newest.
+        Public catalog listing with filter and sort.
       parameters:
         - in: query
           name: age_category_id
-          schema: { type: integer, format: int64, minimum: 1 }
           required: false
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
         - in: query
           name: education_category_id
-          schema: { type: integer, format: int64, minimum: 1 }
           required: false
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
         - in: query
           name: sort
+          required: false
           schema:
             type: string
             enum: [newest, popular]
             default: newest
-          required: false
-          description: popular accepted as placeholder (falls back to newest for now).
         - in: query
           name: page
-          schema: { type: integer, minimum: 1, default: 1 }
           required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
         - in: query
           name: limit
-          schema: { type: integer, minimum: 1, maximum: 100, default: 24 }
           required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 24
       responses:
         "200":
-          description: List of games
+          description: Game list
           content:
             application/json:
               schema:
-                allOf:
-                  - $ref: "#/components/schemas/SuccessResponse"
-                  - type: object
-                    properties:
-                      data: { $ref: "#/components/schemas/GameListData" }
+                $ref: "#/components/schemas/GameListResponse"
+              examples:
+                game_list:
+                  value:
+                    data:
+                      items:
+                        - id: 1
+                          title: "Color Match"
+                          slug: "color-match"
+                          thumbnail: null
+                          game_url: "/games/1/current/index.html"
+                          age_category_id: 1
+                          age_label: "7+"
+                          min_age: 7
+                          max_age: 10
+                          education_category_ids: [1, 2]
+                          education_categories:
+                            - id: 1
+                              name: "Math"
+                            - id: 2
+                              name: "Logic"
+                          play_count: 123
+                          free: true
+                          created_at: "2026-01-10T09:00:00Z"
+                      page: 1
+                      limit: 24
+                      total: 1
         "400":
-          description: Invalid filter or pagination
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
 
   /games/{id}:
     get:
-      tags: [Games]
-      summary: Get game detail (public)
-      description: |
-        Returns game detail needed by play page.
-        Only returns active games for public access.
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema: { type: integer, format: int64, minimum: 1 }
-      responses:
-        "200":
-          description: Game detail
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/SuccessResponse"
-                  - type: object
-                    properties:
-                      data: { $ref: "#/components/schemas/GameDetail" }
-        "400":
-          description: Invalid id
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
-        "404":
-          description: Game not found (or not active)
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
-
-  /auth/admin/login:
-    post:
-      tags: [Auth]
-      summary: Admin login
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/LoginRequest" }
-      responses:
-        "200":
-          description: Admin access token
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/SuccessResponse"
-                  - type: object
-                    properties:
-                      data: { $ref: "#/components/schemas/AuthToken" }
-        "401":
-          description: Invalid credentials
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
-
-  /auth/player/login:
-    post:
-      tags: [Auth]
-      summary: Player login (optional)
-      description: Email + parent PIN (lightweight).
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/PlayerLoginRequest" }
-      responses:
-        "200":
-          description: Player access token
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/SuccessResponse"
-                  - type: object
-                    properties:
-                      data: { $ref: "#/components/schemas/AuthToken" }
-        "401":
-          description: Invalid credentials
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
-
-  /auth/player/register:
-    post:
-      tags: [Auth]
-      summary: Player register (optional)
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/PlayerRegisterRequest" }
-      responses:
-        "200":
-          description: Player created
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/SuccessResponse" }
-        "400":
-          description: Invalid input
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
-        "409":
-          description: Email already exists
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
-
-  /admin/me:
-    get:
-      tags: [Auth]
-      summary: Get current admin (token check)
-      security:
-        - bearerAuth: []
-      responses:
-        "200":
-          description: Current admin
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/SuccessResponse"
-                  - type: object
-                    properties:
-                      data: { $ref: "#/components/schemas/AdminMe" }
-        "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
-        "403":
-          description: Forbidden (not admin)
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
-
-  /sessions/start:
-    post:
-      tags: [Sessions]
-      summary: Start play session (guest or logged-in)
-      description: Returns short-lived play_token for submitting score/events.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/SessionStartRequest" }
-      responses:
-        "200":
-          description: Play token created
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/SuccessResponse"
-                  - type: object
-                    properties:
-                      data: { $ref: "#/components/schemas/PlaySession" }
-        "400":
-          description: Invalid request
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
-        "404":
-          description: Game not found or not playable
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
-
-  /leaderboard/submit:
-    post:
-      tags: [Leaderboard]
-      summary: Submit score
-      description: |
-        Called by HTML5 game via SDK. Requires play_token.
-        Server may flag suspicious submissions.
-      security:
-        - playTokenAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/LeaderboardSubmitRequest" }
-      responses:
-        "200":
-          description: Submission accepted
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/SuccessResponse"
-                  - type: object
-                    properties:
-                      data: { $ref: "#/components/schemas/LeaderboardSubmitResult" }
-              examples:
-                accepted:
-                  value:
-                    data:
-                      accepted: true
-                      flagged: false
-                      flag_reason: null
-                      best_score: 100
-        "400":
-          description: Invalid score payload
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
-        "401":
-          description: Missing/invalid play token
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
-        "403":
-          description: Token game mismatch / forbidden
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
-        "429":
-          description: Rate limited
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
-
-  /leaderboard/{game_id}:
-    get:
-      tags: [Leaderboard]
-      summary: Read leaderboard top N (game or global)
-      description: |
-        Reads leaderboard from Valkey ZSET for current day/week.
-        If key doesn't exist yet, returns items: [].
-      parameters:
-        - in: path
-          name: game_id
-          required: true
-          schema: { type: integer, format: int64, minimum: 1 }
-          description: Game id used when scope=game. For scope=global it's still required by route (kept for compatibility).
-        - in: query
-          name: period
-          required: false
-          schema:
-            type: string
-            enum: [daily, weekly]
-            default: daily
-          description: Leaderboard time window.
-        - in: query
-          name: scope
-          required: false
-          schema:
-            type: string
-            enum: [game, global]
-            default: game
-          description: game = per game leaderboard; global = cross-game leaderboard (may be empty if not populated yet).
-        - in: query
-          name: limit
-          required: false
-          schema: { type: integer, minimum: 1, maximum: 100, default: 10 }
-          description: Top N entries.
-      responses:
-        "200":
-          description: Leaderboard view
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/SuccessResponse"
-                  - type: object
-                    properties:
-                      data: { $ref: "#/components/schemas/LeaderboardViewResponse" }
-              examples:
-                ok_game_daily:
-                  value:
-                    data:
-                      game_id: 1
-                      period: daily
-                      scope: game
-                      limit: 10
-                      items:
-                        - member: "g:jb_guest_001"
-                          score: 100
-                        - member: "g:jb_guest_002"
-                          score: 80
-                ok_global_weekly_empty:
-                  value:
-                    data:
-                      game_id: 1
-                      period: weekly
-                      scope: global
-                      limit: 10
-                      items: []
-        "400":
-          description: Invalid query or params
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
-
-  /leaderboard/{game_id}/self:
-    get:
-      tags: [Leaderboard]
-      summary: Read self rank & score
-      description: |
-        Returns caller's own rank/score in current leaderboard window.
-        Caller can be:
-        - logged-in player (player JWT)
-        - guest/play session (play_token)
-      security:
-        - bearerAuth: []
-        - playTokenAuth: []
-      parameters:
-        - in: path
-          name: game_id
-          required: true
-          schema: { type: integer, format: int64, minimum: 1 }
-        - in: query
-          name: period
-          required: false
-          schema:
-            type: string
-            enum: [daily, weekly]
-            default: daily
-        - in: query
-          name: scope
-          required: false
-          schema:
-            type: string
-            enum: [game, global]
-            default: game
-      responses:
-        "200":
-          description: Self rank response
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/SuccessResponse"
-                  - type: object
-                    properties:
-                      data: { $ref: "#/components/schemas/LeaderboardSelfResponse" }
-              examples:
-                ranked:
-                  value:
-                    data:
-                      game_id: 1
-                      rank: 5
-                      score: 1200
-                      period: daily
-                      scope: game
-                not_ranked:
-                  value:
-                    data:
-                      game_id: 1
-                      rank: null
-                      score: null
-                      period: daily
-                      scope: game
-        "400":
-          description: Invalid query or params
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
-        "401":
-          description: Missing/invalid token
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
-        "403":
-          description: Forbidden token/game mismatch
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
-
-  /achievement/unlock:
-    post:
-      tags: [Achievements]
-      summary: Unlock achievement event (from game)
-      description: Called by HTML5 game. Requires play_token.
-      security:
-        - playTokenAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/AchievementUnlockRequest" }
-      responses:
-        "200":
-          description: Unlock accepted
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/SuccessResponse" }
-        "400":
-          description: Invalid payload
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
-        "401":
-          description: Invalid play token
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
-
-  /achievement/player/{player_id}:
-    get:
-      tags: [Achievements]
-      summary: List player achievements (optional player account)
-      security:
-        - bearerAuth: []
-      parameters:
-        - in: path
-          name: player_id
-          required: true
-          schema: { type: integer, format: int64 }
-      responses:
-        "200":
-          description: Player achievements
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/SuccessResponse"
-                  - type: object
-                    properties:
-                      data:
-                        type: array
-                        items: { $ref: "#/components/schemas/PlayerAchievement" }
-        "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
-
-  /analytics/event:
-    post:
-      tags: [Analytics]
-      summary: Track analytics event (from game)
-      description: Called by HTML5 game. Requires play_token in request body.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/AnalyticsEventRequest" }
-      responses:
-        "200":
-          description: Event accepted
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/SuccessResponse" }
-        "400":
-          description: Invalid event payload
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
-        "401":
-          description: Invalid play token
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
-        "404":
-          description: Play session not found
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
-        "429":
-          description: Rate limited
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
-        "500":
-          description: Internal error
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
-
-  /admin/dashboard/overview:
-    get:
-      tags: [Admin Dashboard]
-      summary: Admin dashboard overview
-      security:
-        - bearerAuth: []
-      responses:
-        "200":
-          description: Overview stats
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/SuccessResponse"
-                  - type: object
-                    properties:
-                      data: { $ref: "#/components/schemas/AdminOverview" }
-        "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
-        "403":
-          description: Forbidden (not admin)
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
-
-  /admin/games:
-    get:
-      tags: [Admin Games]
-      summary: List games (admin)
-      security:
-        - bearerAuth: []
-      parameters:
-        - in: query
-          name: status
-          required: false
-          schema:
-            type: string
-            enum: [draft, active, archived]
-          description: Optional status filter.
-        - in: query
-          name: q
-          required: false
-          schema: { type: string, example: "color" }
-          description: Search by title or slug (ILIKE).
-        - in: query
-          name: page
-          required: false
-          schema: { type: integer, minimum: 1, default: 1 }
-        - in: query
-          name: limit
-          required: false
-          schema: { type: integer, minimum: 1, maximum: 100, default: 24 }
-      responses:
-        "200":
-          description: Admin game list
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/SuccessResponse"
-                  - type: object
-                    properties:
-                      data: { $ref: "#/components/schemas/AdminGameListData" }
-        "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
-        "403":
-          description: Forbidden (not admin)
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
-
-    post:
-      tags: [Admin Games]
-      summary: Create game metadata (draft)
-      description: |
-        Creates a new game as draft. Publish via /admin/games/{id}/publish.
-      security:
-        - bearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/AdminGameCreateRequest" }
-      responses:
-        "200":
-          description: Created (draft)
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/SuccessResponse"
-                  - type: object
-                    properties:
-                      data: { $ref: "#/components/schemas/AdminGameDTO" }
-        "400":
-          description: Invalid input / slug conflict / bad age_category_id
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
-        "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
-        "403":
-          description: Forbidden (not admin)
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
-        "409":
-          description: Slug already exists
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
-
-  /admin/games/{id}:
-    put:
-      tags: [Admin Games]
-      summary: Update game metadata
-      description: |
-        Updates metadata fields only. Publishing is done via /publish.
-      security:
-        - bearerAuth: []
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema: { type: integer, format: int64, minimum: 1 }
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/AdminGameUpdateRequest" }
-      responses:
-        "200":
-          description: Updated
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/SuccessResponse"
-                  - type: object
-                    properties:
-                      data: { $ref: "#/components/schemas/AdminGameDTO" }
-        "400":
-          description: Invalid input / slug conflict / bad age_category_id
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
-        "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
-        "403":
-          description: Forbidden (not admin)
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
-        "404":
-          description: Game not found
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
-        "409":
-          description: Slug already exists
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
-
-  /admin/games/{id}/upload:
-    post:
-      tags: [ Admin Games ]
-      summary: Upload game ZIP package
-      description: |
-        Upload HTML5 game package as ZIP file.
-        The ZIP will be stored in MinIO and later served via game_url.
-        - Only .zip files are allowed
-        - Max size is limited by server configuration
-      security:
-        - bearerAuth: [ ]
+      tags: [Public Games]
+      summary: Get active game detail
       parameters:
         - in: path
           name: id
@@ -778,866 +167,1771 @@ paths:
             type: integer
             format: int64
             minimum: 1
-          description: Game ID to attach the uploaded ZIP to
+      responses:
+        "200":
+          description: Game detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GameDetailResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /categories:
+    get:
+      tags: [Public Categories]
+      summary: List public categories
+      parameters:
+        - in: query
+          name: type
+          required: false
+          schema:
+            type: string
+            enum: [age, education]
+      responses:
+        "200":
+          description: Category list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicCategoriesResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /sessions/start:
+    post:
+      tags: [Sessions]
+      summary: Start play session
+      description: |
+        Creates a short-lived `play_token`. Endpoint is public, but optionally accepts
+        player JWT in Authorization header to bind player identity into token subject.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SessionStartRequest"
+      responses:
+        "200":
+          description: Session started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionStartResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /analytics/event:
+    post:
+      tags: [Analytics]
+      summary: Track gameplay analytics event
+      description: |
+        Ingests gameplay event with `play_token` in request body.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AnalyticsEventRequest"
+            examples:
+              analytics_event:
+                value:
+                  play_token: "<play_token>"
+                  name: "game_start"
+                  data:
+                    level: 1
+                    source: "sdk"
+      responses:
+        "200":
+          description: Event accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnalyticsEventResponse"
+              examples:
+                accepted:
+                  value:
+                    data:
+                      ok: true
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /leaderboard/submit:
+    post:
+      tags: [Leaderboard]
+      summary: Submit score
+      description: |
+        Submit score using play token (Authorization header).
+        Requires `X-Guest-Id` when no player subject is present.
+      security:
+        - PlayTokenAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LeaderboardSubmitRequest"
+      responses:
+        "200":
+          description: Submission accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LeaderboardSubmitResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /leaderboard/{game_id}:
+    get:
+      tags: [Leaderboard]
+      summary: Read leaderboard top entries
+      parameters:
+        - in: path
+          name: game_id
+          required: true
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+        - in: query
+          name: period
+          required: false
+          schema:
+            type: string
+            enum: [daily, weekly]
+            default: daily
+        - in: query
+          name: scope
+          required: false
+          schema:
+            type: string
+            enum: [game, global]
+            default: game
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 10
+      responses:
+        "200":
+          description: Leaderboard data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LeaderboardResponse"
+              examples:
+                leaderboard_top:
+                  value:
+                    data:
+                      game_id: 1
+                      period: daily
+                      scope: game
+                      limit: 10
+                      items:
+                        - member: "g:guest_001"
+                          score: 1200
+                        - member: "s:2b67..."
+                          score: 1100
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /leaderboard/{game_id}/self:
+    get:
+      tags: [Leaderboard]
+      summary: Read caller rank and score
+      description: |
+        Authorization supports either player JWT or play token.
+      security:
+        - BearerAuth: []
+        - PlayTokenAuth: []
+      parameters:
+        - in: path
+          name: game_id
+          required: true
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+        - in: query
+          name: period
+          required: false
+          schema:
+            type: string
+            enum: [daily, weekly]
+            default: daily
+        - in: query
+          name: scope
+          required: false
+          schema:
+            type: string
+            enum: [game, global]
+            default: game
+      responses:
+        "200":
+          description: Self leaderboard view
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LeaderboardSelfResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /auth/player/register:
+    post:
+      tags: [Player Auth]
+      summary: Register player
+      description: |
+        Creates optional player account with email + 6-digit PIN.
+        Note: response is legacy top-level payload (no `{ data: ... }` wrapper).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlayerAuthRequest"
+      responses:
+        "200":
+          description: Player registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlayerAuthResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /auth/player/login:
+    post:
+      tags: [Player Auth]
+      summary: Login player
+      description: |
+        Authenticates player using email + 6-digit PIN.
+        Note: response is legacy top-level payload (no `{ data: ... }` wrapper).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlayerAuthRequest"
+      responses:
+        "200":
+          description: Player authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlayerAuthResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /auth/player/logout:
+    post:
+      tags: [Player Auth]
+      summary: Logout player
+      description: Stateless logout endpoint.
+      responses:
+        "204":
+          description: Logged out
+
+  /player/history:
+    get:
+      tags: [Player History]
+      summary: List player gameplay history
+      description: |
+        Requires player JWT in Authorization header.
+        Note: response is top-level `{ data, pagination }`.
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: page
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 10
+      responses:
+        "200":
+          description: Player history
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlayerHistoryResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /auth/admin/login:
+    post:
+      tags: [Admin Auth]
+      summary: Admin login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminLoginRequest"
+      responses:
+        "200":
+          description: Admin token issued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminLoginResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /admin/ping:
+    get:
+      tags: [Admin Profile]
+      summary: Admin auth ping
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Authorized and active
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminPingResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /admin/me:
+    get:
+      tags: [Admin Profile]
+      summary: Get current admin
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Admin profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminMeResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /admin/dashboard/overview:
+    get:
+      tags: [Admin Dashboard]
+      summary: Dashboard overview metrics
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Overview metrics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardOverviewResponse"
+              examples:
+                dashboard_overview:
+                  value:
+                    data:
+                      sessions_today: 89
+                      total_active_games: 12
+                      total_players: 340
+                      top_games:
+                        - game_id: 1
+                          title: "Color Match"
+                          plays: 34
+                        - game_id: 2
+                          title: "Math Hero"
+                          plays: 21
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /admin/games:
+    get:
+      tags: [Admin Games]
+      summary: List games (admin)
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: status
+          required: false
+          schema:
+            type: string
+            enum: [draft, active, archived]
+        - in: query
+          name: q
+          required: false
+          schema:
+            type: string
+        - in: query
+          name: page
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 24
+      responses:
+        "200":
+          description: Admin game list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminGameListResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    post:
+      tags: [Admin Games]
+      summary: Create game metadata
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminGameCreateRequest"
+      responses:
+        "200":
+          description: Game created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminGameResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /admin/games/{id}:
+    put:
+      tags: [Admin Games]
+      summary: Update game metadata
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminGameUpdateRequest"
+      responses:
+        "200":
+          description: Game updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminGameResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /admin/games/{id}/publish:
+    post:
+      tags: [Admin Games]
+      summary: Publish game (active)
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+      responses:
+        "200":
+          description: Game published
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminGameResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /admin/games/{id}/unpublish:
+    post:
+      tags: [Admin Games]
+      summary: Unpublish game (draft)
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+      responses:
+        "200":
+          description: Game unpublished
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminGameResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /admin/games/{id}/upload:
+    post:
+      tags: [Admin Games]
+      summary: Upload game ZIP package
+      description: |
+        Upload `.zip` containing web game files.
+        Required constraints enforced by backend:
+        - root-level `index.html`
+        - path safety checks
+        - extension allowlist
+        - max body size and uncompressed limits
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
       requestBody:
         required: true
         content:
           multipart/form-data:
             schema:
               type: object
-              required: [ file ]
+              required: [file]
               properties:
                 file:
                   type: string
                   format: binary
-                  description: ZIP file containing the HTML5 game
       responses:
         "200":
-          description: Upload successful
+          description: Upload processed
           content:
             application/json:
               schema:
-                allOf:
-                  - $ref: "#/components/schemas/SuccessResponse"
-                  - type: object
-                    properties:
-                      data:
-                        $ref: "#/components/schemas/AdminGameUploadResult"
+                $ref: "#/components/schemas/UploadResponse"
               examples:
-                ok:
+                upload_result:
                   value:
                     data:
-                      game_id: 7
-                      object_key: games/7/game.zip
-                      etag: "a1b2c3d4e5f6"
-                      filename: my_game.zip
+                      object_key: "1/upload/20260224_120000_a1b2c3d4e5f6a7b8.zip"
+                      etag: "1f3870be274f6c49b3e31a0c6728957f"
+                      size: 1048576
+                      game_url: "/games/1/current/index.html"
         "400":
-          description: |
-            Bad request:
-            - file missing
-            - invalid file type (not zip)
-            - file too large
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
+          $ref: "#/components/responses/BadRequest"
         "401":
-          description: Missing or invalid token
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
+          $ref: "#/components/responses/Unauthorized"
         "403":
-          description: Forbidden (not admin)
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
+          $ref: "#/components/responses/Forbidden"
         "404":
-          description: Game not found
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
+          $ref: "#/components/responses/NotFound"
         "413":
-          description: Payload too large
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
-
-  /admin/games/{id}/publish:
-    post:
-      tags: [Admin Games]
-      summary: Publish game (set status active)
-      security:
-        - bearerAuth: []
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema: { type: integer, format: int64, minimum: 1 }
-      responses:
-        "200":
-          description: Published
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/SuccessResponse"
-                  - type: object
-                    properties:
-                      data: { $ref: "#/components/schemas/AdminGameDTO" }
-        "400":
-          description: Invalid id
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
-        "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
-        "403":
-          description: Forbidden (not admin)
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
-        "404":
-          description: Game not found
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
-
-  /admin/games/{id}/unpublish:
-    post:
-      tags: [Admin Games]
-      summary: Unpublish game (set status draft)
-      security:
-        - bearerAuth: []
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema: { type: integer, format: int64, minimum: 1 }
-      responses:
-        "200":
-          description: Unpublished
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/SuccessResponse"
-                  - type: object
-                    properties:
-                      data: { $ref: "#/components/schemas/AdminGameDTO" }
-        "400":
-          description: Invalid id
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
-        "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
-        "403":
-          description: Forbidden (not admin)
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
-        "404":
-          description: Game not found
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
-
-  /admin/education-categories:
-    get:
-      tags: [Admin Categories]
-      summary: List education categories (admin)
-      security:
-        - bearerAuth: []
-      parameters:
-        - in: query
-          name: q
-          required: false
-          schema: { type: string, example: "math" }
-          description: Search by name (ILIKE).
-        - in: query
-          name: page
-          required: false
-          schema: { type: integer, minimum: 1, default: 1 }
-        - in: query
-          name: limit
-          required: false
-          schema: { type: integer, minimum: 1, maximum: 100, default: 24 }
-      responses:
-        "200":
-          description: Education categories
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/SuccessResponse"
-                  - type: object
-                    properties:
-                      data: { $ref: "#/components/schemas/AdminEducationCategoryListData" }
-        "400":
-          description: Invalid query/pagination
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
-        "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
-        "403":
-          description: Forbidden (not admin)
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
-
-    post:
-      tags: [Admin Categories]
-      summary: Create education category (admin)
-      security:
-        - bearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/AdminEducationCategoryCreateRequest" }
-      responses:
-        "200":
-          description: Created
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/SuccessResponse"
-                  - type: object
-                    properties:
-                      data: { $ref: "#/components/schemas/AdminEducationCategoryDTO" }
-        "400":
-          description: Invalid input / duplicate name
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
-        "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
-        "403":
-          description: Forbidden (not admin)
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
-        "409":
-          description: Duplicate (unique constraint)
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
-
-  /admin/education-categories/{id}:
-    put:
-      tags: [Admin Categories]
-      summary: Update education category (admin)
-      security:
-        - bearerAuth: []
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema: { type: integer, format: int64, minimum: 1 }
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/AdminEducationCategoryUpdateRequest" }
-      responses:
-        "200":
-          description: Updated
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/SuccessResponse"
-                  - type: object
-                    properties:
-                      data: { $ref: "#/components/schemas/AdminEducationCategoryDTO" }
-        "400":
-          description: Invalid input / duplicate name
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
-        "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
-        "403":
-          description: Forbidden (not admin)
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
-        "404":
-          description: Not found
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
-        "409":
-          description: Duplicate (unique constraint)
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
-
-    delete:
-      tags: [Admin Categories]
-      summary: Delete education category (admin)
-      description: |
-        Deletes a category. If referenced by game_education_categories, DB FK may reject delete.
-      security:
-        - bearerAuth: []
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema: { type: integer, format: int64, minimum: 1 }
-      responses:
-        "200":
-          description: Deleted
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/SuccessResponse" }
-              examples:
-                ok:
-                  value:
-                    data:
-                      deleted: true
-                      id: 1
-        "400":
-          description: Invalid id / cannot delete due to FK
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
-        "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
-        "403":
-          description: Forbidden (not admin)
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
-        "404":
-          description: Not found
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
+          $ref: "#/components/responses/PayloadTooLarge"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "500":
+          $ref: "#/components/responses/InternalError"
 
   /admin/age-categories:
     get:
       tags: [Admin Categories]
-      summary: List age categories (admin)
+      summary: List age categories
+      description: |
+        Returns repository wire format objects.
       security:
-        - bearerAuth: []
+        - BearerAuth: []
       parameters:
         - in: query
           name: q
           required: false
-          schema: { type: string, example: "7+" }
-          description: Search by label (ILIKE).
+          schema:
+            type: string
         - in: query
           name: page
           required: false
-          schema: { type: integer, minimum: 1, default: 1 }
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
         - in: query
           name: limit
           required: false
-          schema: { type: integer, minimum: 1, maximum: 100, default: 24 }
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 24
       responses:
         "200":
           description: Age categories
           content:
             application/json:
               schema:
-                allOf:
-                  - $ref: "#/components/schemas/SuccessResponse"
-                  - type: object
-                    properties:
-                      data: { $ref: "#/components/schemas/AdminAgeCategoryListData" }
+                $ref: "#/components/schemas/AdminAgeCategoryListResponse"
         "400":
-          description: Invalid query/pagination
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
+          $ref: "#/components/responses/BadRequest"
         "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
+          $ref: "#/components/responses/Unauthorized"
         "403":
-          description: Forbidden (not admin)
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
 
     post:
       tags: [Admin Categories]
-      summary: Create age category (admin)
+      summary: Create age category
       security:
-        - bearerAuth: []
+        - BearerAuth: []
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: "#/components/schemas/AdminAgeCategoryCreateRequest" }
+            schema:
+              $ref: "#/components/schemas/AdminAgeCategoryUpdateRequest"
       responses:
         "200":
-          description: Created
+          description: Age category created
           content:
             application/json:
               schema:
-                allOf:
-                  - $ref: "#/components/schemas/SuccessResponse"
-                  - type: object
-                    properties:
-                      data: { $ref: "#/components/schemas/AdminAgeCategoryDTO" }
+                $ref: "#/components/schemas/AdminAgeCategoryResponse"
         "400":
-          description: Invalid input / duplicate label / invalid range
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
+          $ref: "#/components/responses/BadRequest"
         "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
+          $ref: "#/components/responses/Unauthorized"
         "403":
-          description: Forbidden (not admin)
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
-        "409":
-          description: Duplicate (unique constraint)
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
 
   /admin/age-categories/{id}:
     put:
       tags: [Admin Categories]
-      summary: Update age category (admin)
+      summary: Update age category
       security:
-        - bearerAuth: []
+        - BearerAuth: []
       parameters:
         - in: path
           name: id
           required: true
-          schema: { type: integer, format: int64, minimum: 1 }
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: "#/components/schemas/AdminAgeCategoryUpdateRequest" }
+            schema:
+              $ref: "#/components/schemas/AdminAgeCategoryRequest"
       responses:
         "200":
-          description: Updated
+          description: Age category updated
           content:
             application/json:
               schema:
-                allOf:
-                  - $ref: "#/components/schemas/SuccessResponse"
-                  - type: object
-                    properties:
-                      data: { $ref: "#/components/schemas/AdminAgeCategoryDTO" }
+                $ref: "#/components/schemas/AdminAgeCategoryResponse"
         "400":
-          description: Invalid input / duplicate label / invalid range
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
+          $ref: "#/components/responses/BadRequest"
         "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
+          $ref: "#/components/responses/Unauthorized"
         "403":
-          description: Forbidden (not admin)
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
+          $ref: "#/components/responses/Forbidden"
         "404":
-          description: Not found
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
-        "409":
-          description: Duplicate (unique constraint)
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
 
     delete:
       tags: [Admin Categories]
-      summary: Delete age category (admin)
-      description: |
-        Deletes an age category. If referenced by games.age_category_id, DB FK will reject delete.
+      summary: Delete age category
       security:
-        - bearerAuth: []
+        - BearerAuth: []
       parameters:
         - in: path
           name: id
           required: true
-          schema: { type: integer, format: int64, minimum: 1 }
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
       responses:
         "200":
-          description: Deleted
+          description: Age category deleted
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/SuccessResponse" }
-              examples:
-                ok:
-                  value:
-                    data:
-                      deleted: true
-                      id: 1
+              schema:
+                $ref: "#/components/schemas/DeleteResponse"
         "400":
-          description: Invalid id / cannot delete due to FK
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
+          $ref: "#/components/responses/BadRequest"
         "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
+          $ref: "#/components/responses/Unauthorized"
         "403":
-          description: Forbidden (not admin)
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
+          $ref: "#/components/responses/Forbidden"
         "404":
-          description: Not found
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
 
-  /admin/achievements:
+  /admin/education-categories:
     get:
-      tags: [Admin Achievements]
-      summary: List achievements (stub)
+      tags: [Admin Categories]
+      summary: List education categories
+      description: |
+        Returns repository wire format objects.
       security:
-        - bearerAuth: []
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: q
+          required: false
+          schema:
+            type: string
+        - in: query
+          name: page
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 24
       responses:
         "200":
-          description: Achievements list
+          description: Education categories
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/SuccessResponse" }
-        "501":
-          description: Not implemented
+              schema:
+                $ref: "#/components/schemas/AdminEducationCategoryListResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
     post:
-      tags: [Admin Achievements]
-      summary: Create achievement (stub)
+      tags: [Admin Categories]
+      summary: Create education category
       security:
-        - bearerAuth: []
+        - BearerAuth: []
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: "#/components/schemas/AdminAchievementUpsertRequest" }
+            schema:
+              $ref: "#/components/schemas/AdminEducationCategoryUpdateRequest"
       responses:
         "200":
-          description: Created
+          description: Education category created
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/SuccessResponse" }
-        "501":
-          description: Not implemented
+              schema:
+                $ref: "#/components/schemas/AdminEducationCategoryResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
 
-  /admin/moderation/flagged:
+  /admin/education-categories/{id}:
+    put:
+      tags: [Admin Categories]
+      summary: Update education category
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminEducationCategoryRequest"
+      responses:
+        "200":
+          description: Education category updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminEducationCategoryResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    delete:
+      tags: [Admin Categories]
+      summary: Delete education category
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+      responses:
+        "200":
+          description: Education category deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /admin/moderation/flagged-submissions:
     get:
       tags: [Admin Moderation]
       summary: List flagged leaderboard submissions
       security:
-        - bearerAuth: []
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+            minimum: 1
       responses:
         "200":
           description: Flagged submissions
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/SuccessResponse" }
+              schema:
+                $ref: "#/components/schemas/ModerationFlaggedListResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /admin/moderation/flagged:
+    get:
+      tags: [Admin Moderation]
+      summary: List flagged leaderboard submissions (alias)
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        "200":
+          description: Flagged submissions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModerationFlaggedListResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
 
   /admin/moderation/remove-score:
     post:
       tags: [Admin Moderation]
-      summary: Remove a score from leaderboard (moderation)
+      summary: Remove score from leaderboards
       security:
-        - bearerAuth: []
+        - BearerAuth: []
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: "#/components/schemas/ModerationRemoveScoreRequest" }
+            schema:
+              $ref: "#/components/schemas/ModerationRemoveScoreRequest"
       responses:
         "200":
-          description: Removed
+          description: Score removed
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/SuccessResponse" }
+              schema:
+                $ref: "#/components/schemas/ModerationRemoveScoreResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
 
 components:
   securitySchemes:
-    bearerAuth:
+    BearerAuth:
       type: http
       scheme: bearer
       bearerFormat: JWT
-      description: Admin/Player access token
-    playTokenAuth:
-      type: http
-      scheme: bearer
-      bearerFormat: JWT
-      description: Short-lived play token for game iframe submissions (score/events)
+      description: Admin/player JWT bearer token
+    PlayTokenAuth:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: "Play token. Send as: Bearer <play_token>"
+
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          examples:
+            bad_request:
+              value:
+                error:
+                  code: BAD_REQUEST
+                  message: invalid input
+                  request_id: req_a1b2c3
+
+    Unauthorized:
+      description: Unauthorized
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          examples:
+            unauthorized:
+              value:
+                error:
+                  code: UNAUTHORIZED
+                  message: unauthorized
+                  request_id: req_a1b2c3
+
+    Forbidden:
+      description: Forbidden
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          examples:
+            forbidden:
+              value:
+                error:
+                  code: FORBIDDEN
+                  message: forbidden
+                  request_id: req_a1b2c3
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          examples:
+            not_found:
+              value:
+                error:
+                  code: RESOURCE_NOT_FOUND
+                  message: resource not found
+                  request_id: req_a1b2c3
+
+    PayloadTooLarge:
+      description: Payload too large
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          examples:
+            payload_too_large:
+              value:
+                error:
+                  code: ZIP_TOO_LARGE
+                  message: zip too large
+                  request_id: req_a1b2c3
+
+    Unprocessable:
+      description: Unprocessable entity
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          examples:
+            invalid_zip_path:
+              value:
+                error:
+                  code: INVALID_ZIP_PATH
+                  message: zip entry contains invalid path segment
+                  request_id: req_a1b2c3
+
+    RateLimited:
+      description: Rate limited
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          examples:
+            rate_limited:
+              value:
+                error:
+                  code: RATE_LIMITED
+                  message: rate limit exceeded
+                  request_id: req_a1b2c3
+
+    InternalError:
+      description: Internal error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          examples:
+            internal_error:
+              value:
+                error:
+                  code: INTERNAL_ERROR
+                  message: internal error
+                  request_id: req_a1b2c3
 
   schemas:
-    SuccessResponse:
+    Error:
       type: object
+      required: [code, message]
       properties:
-        data: { nullable: true }
+        code:
+          type: string
+          description: Application error code
+          example: BAD_REQUEST
+        message:
+          type: string
+          description: Human-readable message
+          example: invalid input
+        request_id:
+          type: string
+          description: Request correlation identifier
+          example: req_a1b2c3
 
-    ErrorResponse:
+    ErrorEnvelope:
       type: object
+      required: [error]
       properties:
         error:
-          type: object
-          required: [code, message]
-          properties:
-            code:
-              type: string
-              example: BAD_REQUEST
-            message:
-              type: string
-              example: invalid input
+          $ref: "#/components/schemas/Error"
 
-    Paging:
+    Pagination:
       type: object
+      required: [page, limit, total]
       properties:
-        limit: { type: integer, example: 24 }
-        offset: { type: integer, example: 0 }
+        page:
+          type: integer
+          minimum: 1
+          example: 1
+        limit:
+          type: integer
+          minimum: 1
+          example: 24
+        total:
+          type: integer
+          minimum: 0
+          example: 120
 
-    LoginRequest:
+    HealthData:
       type: object
-      required: [email, password]
+      required: [ok, service, time, env]
       properties:
-        email: { type: string, format: email }
-        password: { type: string, format: password }
+        ok:
+          type: boolean
+        service:
+          type: string
+          example: api
+        time:
+          type: string
+          format: date-time
+        env:
+          type: string
+          example: dev
 
-    PlayerLoginRequest:
+    HealthResponse:
       type: object
-      required: [email, parent_pin]
+      required: [data]
       properties:
-        email: { type: string, format: email }
-        parent_pin: { type: string, minLength: 4, maxLength: 12 }
+        data:
+          $ref: "#/components/schemas/HealthData"
 
-    PlayerRegisterRequest:
+    PublicEducationCategory:
       type: object
-      required: [email, parent_pin, nickname]
+      required: [id, name]
       properties:
-        email: { type: string, format: email }
-        parent_pin: { type: string, minLength: 4, maxLength: 12 }
-        nickname: { type: string, minLength: 2, maxLength: 50 }
-        age: { type: integer, minimum: 1, maximum: 99 }
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
 
-    AuthToken:
+    Category:
+      description: Generic category type used across age and education category contexts
+      oneOf:
+        - $ref: "#/components/schemas/PublicAgeCategory"
+        - $ref: "#/components/schemas/PublicEducationCategory"
+
+    Game:
       type: object
+      required:
+        - id
+        - title
+        - slug
+        - thumbnail
+        - game_url
+        - age_category_id
+        - play_count
+        - free
+        - created_at
       properties:
-        access_token: { type: string }
-        token_type: { type: string, example: Bearer }
-        expires_in: { type: integer, example: 604800 }
+        id:
+          type: integer
+          format: int64
+        title:
+          type: string
+        slug:
+          type: string
+        thumbnail:
+          type: string
+          nullable: true
+        game_url:
+          type: string
+          nullable: true
+          description: Playable URL usually `/games/{id}/current/index.html`
+        age_category_id:
+          type: integer
+          format: int64
+        age_label:
+          type: string
+          nullable: true
+        min_age:
+          type: integer
+          nullable: true
+        max_age:
+          type: integer
+          nullable: true
+        education_category_ids:
+          type: array
+          items:
+            type: integer
+            format: int64
+        education_categories:
+          type: array
+          items:
+            $ref: "#/components/schemas/PublicEducationCategory"
+        play_count:
+          type: integer
+          format: int64
+        free:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+
+    GameListData:
+      type: object
+      required: [items, page, limit, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Game"
+        page:
+          type: integer
+          minimum: 1
+        limit:
+          type: integer
+          minimum: 1
+        total:
+          type: integer
+          minimum: 0
+
+    GameListResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/GameListData"
+
+    GameDetailResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/Game"
+
+    PublicAgeCategory:
+      type: object
+      required: [id, label, min_age, max_age]
+      properties:
+        id:
+          type: integer
+          format: int64
+        label:
+          type: string
+        min_age:
+          type: integer
+        max_age:
+          type: integer
+
+    PublicCategoriesData:
+      type: object
+      required: [age_categories, education_categories]
+      properties:
+        age_categories:
+          type: array
+          items:
+            $ref: "#/components/schemas/PublicAgeCategory"
+        education_categories:
+          type: array
+          items:
+            $ref: "#/components/schemas/PublicEducationCategory"
+
+    PublicCategoriesResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/PublicCategoriesData"
 
     SessionStartRequest:
       type: object
       required: [game_id]
       properties:
-        game_id: { type: integer, format: int64 }
-        mode:
-          type: string
-          enum: [guest, player]
-          default: guest
-        client:
-          type: object
-          properties:
-            user_agent: { type: string }
-            ip: { type: string }
-
-    PlaySession:
-      type: object
-      properties:
-        session_id: { type: string, example: "sess_01J..." }
-        game_id: { type: integer, format: int64 }
-        play_token: { type: string, description: Short-lived token for score/events }
-        expires_in: { type: integer, example: 7200 }
-
-    EducationCategory:
-      type: object
-      properties:
-        id: { type: integer, format: int64 }
-        name: { type: string }
-        icon: { type: string, nullable: true }
-        color: { type: string, nullable: true }
-
-    AgeCategory:
-      type: object
-      properties:
-        id: { type: integer, format: int64 }
-        label: { type: string, example: "7+" }
-        min_age: { type: integer, example: 7 }
-        max_age: { type: integer, example: 10 }
-      required: [id, label, min_age, max_age]
-
-    GameCard:
-      type: object
-      properties:
-        id: { type: integer, format: int64 }
-        title: { type: string }
-        thumbnail: { type: string }
-        min_age_label: { type: string, example: "7+" }
-        difficulty: { type: string, nullable: true, example: easy }
-        free: { type: boolean, example: true }
-        education_categories:
-          type: array
-          items: { $ref: "#/components/schemas/EducationCategory" }
-        popularity_score:
+        game_id:
           type: integer
-          description: Simple popularity metric (e.g., last 7d plays)
-          example: 123
+          format: int64
+          minimum: 1
+
+    Session:
+      type: object
+      required: [play_token]
+      properties:
+        play_token:
+          type: string
+          description: Short-lived gameplay token
+        expires_at:
+          type: string
+          format: date-time
+
+    SessionStartResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/Session"
+
+    AnalyticsEvent:
+      type: object
+      required: [play_token, name]
+      properties:
+        play_token:
+          type: string
+        name:
+          type: string
+        data:
+          description: Optional JSON payload (any valid JSON)
+          nullable: true
+          oneOf:
+            - type: object
+              additionalProperties: true
+            - type: array
+              items: {}
+            - type: string
+            - type: number
+            - type: integer
+            - type: boolean
+
+    AnalyticsEventRequest:
+      $ref: "#/components/schemas/AnalyticsEvent"
+
+    AnalyticsEventResult:
+      type: object
+      required: [ok]
+      properties:
+        ok:
+          type: boolean
+          example: true
+
+    AnalyticsEventResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/AnalyticsEventResult"
 
     LeaderboardSubmitRequest:
       type: object
-      required: [game_id, score, timestamp]
+      required: [game_id, score]
       properties:
-        game_id: { type: integer, format: int64 }
-        score: { type: integer, minimum: 0 }
-        timestamp: { type: string, format: date-time }
-        meta:
-          type: object
-          properties:
-            level: { type: string }
-            duration_sec: { type: integer, minimum: 0 }
+        game_id:
+          type: integer
+          format: int64
+          minimum: 1
+        score:
+          type: integer
+          minimum: 0
 
     LeaderboardSubmitResult:
       type: object
+      required: [accepted, best_score]
       properties:
-        accepted: { type: boolean, example: true }
-        flagged: { type: boolean, example: false }
-        flag_reason: { type: string, nullable: true }
+        accepted:
+          type: boolean
         best_score:
           type: integer
-          description: Best score stored for this user/session in the period
-          example: 1200
 
-    LeaderboardItem:
+    LeaderboardSubmitResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/LeaderboardSubmitResult"
+
+    LeaderboardEntry:
       type: object
       required: [member, score]
       properties:
-        member: { type: string, example: "g:jb_guest_001" }
-        score: { type: integer, example: 100 }
+        member:
+          type: string
+          example: "g:guest_001"
+        score:
+          type: integer
 
-    LeaderboardViewResponse:
+    Leaderboard:
       type: object
       required: [game_id, period, scope, limit, items]
       properties:
-        game_id: { type: integer, format: int64, example: 1 }
-        period: { type: string, enum: [daily, weekly], example: daily }
-        scope: { type: string, enum: [game, global], example: game }
-        limit: { type: integer, example: 10 }
+        game_id:
+          type: integer
+          format: int64
+        period:
+          type: string
+          enum: [daily, weekly]
+        scope:
+          type: string
+          enum: [game, global]
+        limit:
+          type: integer
         items:
           type: array
-          items: { $ref: "#/components/schemas/LeaderboardItem" }
+          items:
+            $ref: "#/components/schemas/LeaderboardEntry"
 
-    LeaderboardSelfResponse:
+    LeaderboardResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/Leaderboard"
+
+    LeaderboardSelf:
       type: object
       required: [game_id, period, scope]
       properties:
-        game_id: { type: integer, format: int64, example: 1 }
+        game_id:
+          type: integer
+          format: int64
         rank:
           type: integer
           format: int64
           nullable: true
-          example: 5
         score:
           type: integer
           format: int64
           nullable: true
-          example: 1200
-        period: { type: string, enum: [daily, weekly], example: daily }
-        scope: { type: string, enum: [game, global], example: game }
+        period:
+          type: string
+          enum: [daily, weekly]
+        scope:
+          type: string
+          enum: [game, global]
 
-    LeaderboardEntry:
+    LeaderboardSelfResponse:
       type: object
+      required: [data]
       properties:
-        rank: { type: integer, example: 1 }
-        member: { type: string, example: "p:123" }
-        score: { type: integer, example: 9999 }
-
-    LeaderboardResponse:
-      type: object
-      properties:
-        game_id: { type: integer, format: int64 }
-        period: { type: string, example: weekly }
-        items:
-          type: array
-          items: { $ref: "#/components/schemas/LeaderboardEntry" }
-
-    AchievementUnlockRequest:
-      type: object
-      required: [game_id, achievement_id, timestamp]
-      properties:
-        game_id: { type: integer, format: int64 }
-        achievement_id: { type: integer, format: int64 }
-        timestamp: { type: string, format: date-time }
-        condition:
-          type: object
-          description: Optional debug payload from game
-          properties:
-            score: { type: integer }
-            plays: { type: integer }
-            time_spent_sec: { type: integer }
-
-    PlayerAchievement:
-      type: object
-      properties:
-        achievement_id: { type: integer, format: int64 }
-        game_id: { type: integer, format: int64 }
-        unlocked_at: { type: string, format: date-time }
-        reward:
-          type: object
-          properties:
-            badge: { type: string }
-            points: { type: integer }
-
-    AnalyticsEventRequest:
-      type: object
-      required: [play_token, name]
-      properties:
-        play_token: { type: string, description: Short-lived token from /sessions/start }
-        name: { type: string, description: Event name (e.g. level_start) }
         data:
-          type: object
-          additionalProperties: true
-          nullable: true
-          description: Optional event payload (kept flexible for MVP)
+          $ref: "#/components/schemas/LeaderboardSelf"
 
-    AdminOverview:
+    Player:
       type: object
+      required: [id, email]
       properties:
-        total_active_games: { type: integer, example: 12 }
-        total_players: { type: integer, example: 340 }
-        sessions_today: { type: integer, example: 89 }
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+
+    PlayerAuthRequest:
+      type: object
+      required: [email, pin]
+      properties:
+        email:
+          type: string
+          format: email
+        pin:
+          type: string
+          pattern: "^[0-9]{6}$"
+          description: 6-digit parent PIN
+
+    PlayerAuthResponse:
+      type: object
+      required: [token, player]
+      properties:
+        token:
+          type: string
+        player:
+          $ref: "#/components/schemas/Player"
+
+    PlayerHistoryItem:
+      type: object
+      required: [game_id, title, played_at]
+      properties:
+        game_id:
+          type: integer
+          format: int64
+        title:
+          type: string
+        played_at:
+          type: string
+          format: date-time
+        score:
+          type: integer
+          nullable: true
+        status:
+          type: string
+          nullable: true
+
+    PlayerHistoryResponse:
+      type: object
+      required: [data, pagination]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/PlayerHistoryItem"
+        pagination:
+          type: object
+          required: [page, limit, total]
+          properties:
+            page:
+              type: integer
+            limit:
+              type: integer
+            total:
+              type: integer
+
+    AdminLoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+
+    AdminLoginData:
+      type: object
+      required: [access_token, expires_in]
+      properties:
+        access_token:
+          type: string
+        expires_in:
+          type: integer
+          format: int64
+          description: Token lifetime in seconds
+
+    AdminLoginResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/AdminLoginData"
+
+    AdminPingData:
+      type: object
+      required: [ok]
+      properties:
+        ok:
+          type: boolean
+
+    AdminPingResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/AdminPingData"
+
+    AdminMe:
+      type: object
+      required: [id, email, role]
+      properties:
+        id:
+          type: integer
+          format: int64
+        email:
+          type: string
+          format: email
+        role:
+          type: string
+          enum: [admin]
+
+    AdminMeResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/AdminMe"
+
+    DashboardTopGame:
+      type: object
+      required: [game_id, title, plays]
+      properties:
+        game_id:
+          type: integer
+          format: int64
+        title:
+          type: string
+        plays:
+          type: integer
+
+    DashboardOverview:
+      type: object
+      required: [sessions_today, top_games, total_active_games, total_players]
+      properties:
+        sessions_today:
+          type: integer
         top_games:
           type: array
           items:
-            type: object
-            properties:
-              game_id: { type: integer, format: int64 }
-              title: { type: string }
-              plays: { type: integer }
+            $ref: "#/components/schemas/DashboardTopGame"
+        total_active_games:
+          type: integer
+        total_players:
+          type: integer
 
-    AdminGameDTO:
+    DashboardOverviewResponse:
       type: object
-      required: [id, title, slug, status, age_category_id, free, created_at, updated_at]
+      required: [data]
       properties:
-        id: { type: integer, format: int64 }
-        title: { type: string }
-        slug: { type: string }
+        data:
+          $ref: "#/components/schemas/DashboardOverview"
+
+    AdminEducationCategory:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+
+    AdminGame:
+      type: object
+      required:
+        - id
+        - title
+        - slug
+        - status
+        - age_category_id
+        - free
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: integer
+          format: int64
+        title:
+          type: string
+        slug:
+          type: string
         status:
           type: string
           enum: [draft, active, archived]
-        thumbnail: { type: string, nullable: true }
-        game_url: { type: string, nullable: true }
-        age_category_id: { type: integer, format: int64 }
-        free: { type: boolean }
-        created_at: { type: string, format: date-time }
-        updated_at: { type: string, format: date-time }
+        thumbnail:
+          type: string
+        game_url:
+          type: string
+        age_category_id:
+          type: integer
+          format: int64
+        education_category_ids:
+          type: array
+          items:
+            type: integer
+            format: int64
+        education_categories:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminEducationCategory"
+        free:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
 
     AdminGameListData:
       type: object
@@ -1645,247 +1939,339 @@ components:
       properties:
         items:
           type: array
-          items: { $ref: "#/components/schemas/AdminGameDTO" }
-        page: { type: integer, example: 1 }
-        limit: { type: integer, example: 24 }
-        total: { type: integer, example: 1 }
+          items:
+            $ref: "#/components/schemas/AdminGame"
+        page:
+          type: integer
+        limit:
+          type: integer
+        total:
+          type: integer
+
+    AdminGameListResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/AdminGameListData"
+
+    AdminGameResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/AdminGame"
 
     AdminGameCreateRequest:
       type: object
       required: [title, slug, age_category_id]
       properties:
-        title: { type: string, minLength: 1, maxLength: 150 }
+        title:
+          type: string
+          minLength: 1
+          maxLength: 150
         slug:
           type: string
           minLength: 1
           maxLength: 150
-          description: Lowercase + dash recommended (validated by server).
-        age_category_id: { type: integer, format: int64, minimum: 1 }
-        thumbnail: { type: string, nullable: true }
+          description: Lowercase and dash-separated
+        age_category_id:
+          type: integer
+          format: int64
+          minimum: 1
+        education_category_ids:
+          type: array
+          items:
+            type: integer
+            format: int64
+            minimum: 1
+        thumbnail:
+          type: string
         game_url:
           type: string
-          nullable: true
-          description: Usually null at create; will be set after upload flow later.
         free:
           type: boolean
-          default: true
 
     AdminGameUpdateRequest:
       type: object
-      description: Partial update. Only provided fields are updated.
       properties:
-        title: { type: string, minLength: 1, maxLength: 150 }
+        title:
+          type: string
+          minLength: 1
+          maxLength: 150
         slug:
           type: string
           minLength: 1
           maxLength: 150
-          description: Lowercase + dash recommended (validated by server).
-        age_category_id: { type: integer, format: int64, minimum: 1 }
-        thumbnail: { type: string, nullable: true }
-        game_url: { type: string, nullable: true }
-        free: { type: boolean }
-
-    AdminGameUpsertRequest:
-      type: object
-      required: [title, age_category_id, education_category_ids, free, status]
-      properties:
-        title: { type: string }
-        slug: { type: string }
-        description: { type: string }
-        thumbnail: { type: string }
-        age_category_id: { type: integer, format: int64 }
-        education_category_ids:
-          type: array
-          items: { type: integer, format: int64 }
-        difficulty:
-          type: string
-          nullable: true
-          description: Optional difficulty label
-        free: { type: boolean }
-        status:
-          type: string
-          enum: [draft, active, archived]
-
-    AdminEducationCategoryDTO:
-      type: object
-      required: [id, name, created_at]
-      properties:
-        id: { type: integer, format: int64 }
-        name: { type: string }
-        icon: { type: string, nullable: true }
-        color:
-          type: string
-          nullable: true
-          description: Optional hex color like #RRGGBB
-          example: "#00AEEF"
-        created_at: { type: string, format: date-time }
-
-    AdminGameUploadResult:
-      type: object
-      required: [ game_id, object_key, etag, filename ]
-      properties:
-        game_id:
+        age_category_id:
           type: integer
           format: int64
-          example: 7
-        object_key:
-          type: string
-          example: games/7/game.zip
-          description: Object key stored in MinIO
-        etag:
-          type: string
-          example: "a1b2c3d4e5f6"
-          description: ETag returned by MinIO after upload
-        filename:
-          type: string
-          example: my_game.zip
-
-    AdminEducationCategoryListData:
-      type: object
-      required: [items, page, limit, total]
-      properties:
-        items:
+          minimum: 1
+        education_category_ids:
           type: array
-          items: { $ref: "#/components/schemas/AdminEducationCategoryDTO" }
-        page: { type: integer, example: 1 }
-        limit: { type: integer, example: 24 }
-        total: { type: integer, example: 5 }
-
-    AdminEducationCategoryCreateRequest:
-      type: object
-      required: [name]
-      properties:
-        name: { type: string, minLength: 1, maxLength: 100 }
-        icon: { type: string, nullable: true, maxLength: 100 }
-        color:
+          items:
+            type: integer
+            format: int64
+            minimum: 1
+        thumbnail:
           type: string
           nullable: true
-          description: Optional hex color like #RRGGBB
-          pattern: "^#([0-9a-fA-F]{6})$"
-
-    AdminEducationCategoryUpdateRequest:
-      type: object
-      description: Partial update. Only provided fields are updated.
-      properties:
-        name: { type: string, minLength: 1, maxLength: 100 }
-        icon: { type: string, nullable: true, maxLength: 100 }
-        color:
-          type: string
-          nullable: true
-          description: Optional hex color like #RRGGBB
-          pattern: "^#([0-9a-fA-F]{6})$"
-
-    AdminAgeCategoryDTO:
-      type: object
-      required: [id, label, min_age, max_age, created_at]
-      properties:
-        id: { type: integer, format: int64 }
-        label: { type: string, example: "7+" }
-        min_age: { type: integer, minimum: 0, example: 7 }
-        max_age: { type: integer, minimum: 0, example: 10 }
-        created_at: { type: string, format: date-time }
-
-    AdminAgeCategoryListData:
-      type: object
-      required: [items, page, limit, total]
-      properties:
-        items:
-          type: array
-          items: { $ref: "#/components/schemas/AdminAgeCategoryDTO" }
-        page: { type: integer, example: 1 }
-        limit: { type: integer, example: 24 }
-        total: { type: integer, example: 4 }
-
-    AdminAgeCategoryCreateRequest:
-      type: object
-      required: [label, min_age, max_age]
-      properties:
-        label: { type: string, minLength: 1, maxLength: 50, example: "7+" }
-        min_age: { type: integer, minimum: 0, example: 7 }
-        max_age: { type: integer, minimum: 0, example: 10 }
-
-    AdminAgeCategoryUpdateRequest:
-      type: object
-      description: Partial update. Only provided fields are updated.
-      properties:
-        label: { type: string, minLength: 1, maxLength: 50, example: "7+" }
-        min_age: { type: integer, minimum: 0, example: 7 }
-        max_age: { type: integer, minimum: 0, example: 10 }
-
-    AdminAchievementUpsertRequest:
-      type: object
-      required: [game_id, title]
-      properties:
-        game_id: { type: integer, format: int64 }
-        title: { type: string }
-        description: { type: string }
-        rule:
-          type: object
-          description: "JSON rule definition (MVP: stored as JSON)"
-          additionalProperties: true
-        reward:
-          type: object
-          additionalProperties: true
-
-    ModerationRemoveScoreRequest:
-      type: object
-      required: [game_id, member, period]
-      properties:
-        game_id: { type: integer, format: int64 }
-        member:
-          type: string
-          description: Member key (e.g., p:123 or g:sess_abc)
-        period:
-          type: string
-          enum: [daily, weekly]
-        scope:
-          type: string
-          enum: [game, global]
-          default: game
-
-    AdminMe:
-      type: object
-      properties:
-        id: { type: integer, format: int64 }
-        email: { type: string, format: email }
-        role: { type: string, example: admin }
-
-    GameListItem:
-      type: object
-      properties:
-        id: { type: integer, format: int64 }
-        title: { type: string }
-        slug: { type: string }
-        thumbnail: { type: string, nullable: true }
-        game_url: { type: string, nullable: true }
-        age_category_id: { type: integer, format: int64 }
-        free: { type: boolean }
-        created_at: { type: string, format: date-time }
-      required: [id, title, slug, age_category_id, free, created_at]
-
-    GameListData:
-      type: object
-      properties:
-        items:
-          type: array
-          items: { $ref: "#/components/schemas/GameListItem" }
-        page: { type: integer, example: 1 }
-        limit: { type: integer, example: 24 }
-        total: { type: integer, example: 1 }
-      required: [items, page, limit, total]
-
-    GameDetail:
-      type: object
-      properties:
-        id: { type: integer, format: int64 }
-        title: { type: string }
-        slug: { type: string }
-        thumbnail: { type: string, nullable: true }
         game_url:
           type: string
           nullable: true
-          description: URL to load in iframe (served via Nginx/MinIO later)
-        age_category_id: { type: integer, format: int64 }
-        free: { type: boolean }
-        created_at: { type: string, format: date-time }
-      required: [id, title, slug, age_category_id, free, created_at]
+        free:
+          type: boolean
+
+    UploadResult:
+      type: object
+      required: [object_key, etag, size, game_url]
+      properties:
+        object_key:
+          type: string
+        etag:
+          type: string
+        size:
+          type: integer
+          format: int64
+        game_url:
+          type: string
+          example: "/games/1/current/index.html"
+
+    UploadResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/UploadResult"
+
+    AdminAgeCategoryRequest:
+      type: object
+      required: [label, min_age, max_age]
+      properties:
+        label:
+          type: string
+        min_age:
+          type: integer
+          minimum: 0
+        max_age:
+          type: integer
+          minimum: 0
+
+    AdminAgeCategoryUpdateRequest:
+      type: object
+      properties:
+        label:
+          type: string
+        min_age:
+          type: integer
+          minimum: 0
+        max_age:
+          type: integer
+          minimum: 0
+
+    AdminAgeCategoryWire:
+      type: object
+      required: [ID, Label, MinAge, MaxAge, CreatedAt]
+      properties:
+        ID:
+          type: integer
+          format: int64
+        Label:
+          type: string
+        MinAge:
+          type: integer
+        MaxAge:
+          type: integer
+        CreatedAt:
+          type: string
+          format: date-time
+
+    AdminAgeCategoryListData:
+      type: object
+      required: [items, page, limit]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminAgeCategoryWire"
+        page:
+          type: integer
+        limit:
+          type: integer
+
+    AdminAgeCategoryListResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/AdminAgeCategoryListData"
+
+    AdminAgeCategoryResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/AdminAgeCategoryWire"
+
+    SQLNullString:
+      type: object
+      required: [String, Valid]
+      properties:
+        String:
+          type: string
+        Valid:
+          type: boolean
+
+    AdminEducationCategoryRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        icon:
+          type: string
+          nullable: true
+        color:
+          type: string
+          nullable: true
+          example: "#00AEEF"
+
+    AdminEducationCategoryUpdateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        icon:
+          type: string
+          nullable: true
+        color:
+          type: string
+          nullable: true
+          example: "#00AEEF"
+
+    AdminEducationCategoryWire:
+      type: object
+      required: [ID, Name, Icon, Color, CreatedAt]
+      properties:
+        ID:
+          type: integer
+          format: int64
+        Name:
+          type: string
+        Icon:
+          $ref: "#/components/schemas/SQLNullString"
+        Color:
+          $ref: "#/components/schemas/SQLNullString"
+        CreatedAt:
+          type: string
+          format: date-time
+
+    AdminEducationCategoryListData:
+      type: object
+      required: [items, page, limit]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminEducationCategoryWire"
+        page:
+          type: integer
+        limit:
+          type: integer
+
+    AdminEducationCategoryListResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/AdminEducationCategoryListData"
+
+    AdminEducationCategoryResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/AdminEducationCategoryWire"
+
+    DeleteResult:
+      type: object
+      required: [deleted]
+      properties:
+        deleted:
+          type: boolean
+          enum: [true]
+
+    DeleteResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/DeleteResult"
+
+    ModerationFlaggedItem:
+      type: object
+      required: [id, game_id, player_name, score, flagged, created_at]
+      properties:
+        id:
+          type: integer
+          format: int64
+        game_id:
+          type: integer
+          format: int64
+        player_name:
+          type: string
+        score:
+          type: integer
+        flagged:
+          type: boolean
+        flag_reason:
+          type: string
+          nullable: true
+        session_id:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    ModerationFlaggedListData:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ModerationFlaggedItem"
+
+    ModerationFlaggedListResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/ModerationFlaggedListData"
+
+    ModerationRemoveScoreRequest:
+      type: object
+      required: [submission_id]
+      properties:
+        submission_id:
+          oneOf:
+            - type: integer
+              minimum: 1
+            - type: string
+              pattern: "^[1-9][0-9]*$"
+
+    ModerationRemoveScoreResult:
+      type: object
+      required: [ok]
+      properties:
+        ok:
+          type: boolean
+          enum: [true]
+
+    ModerationRemoveScoreResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/ModerationRemoveScoreResult"

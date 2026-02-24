@@ -1,0 +1,83 @@
+name: Feature request
+description: Propose an enhancement to API, web, DB, or infrastructure behavior.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Keep requests aligned with MVP architecture: games, sessions, analytics_events, leaderboard_submissions, `/api`, and `/games`.
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Priority / severity
+      description: Relative impact if not implemented.
+      options:
+        - high
+        - medium
+        - low
+    validations:
+      required: true
+
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Target environment
+      options:
+        - local (docker-compose)
+        - dev
+        - staging
+        - production
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem_steps
+    attributes:
+      label: Current workflow and steps
+      description: Describe the current flow and where the gap appears.
+      placeholder: |
+        1. User opens ...
+        2. Calls /api/... 
+        3. Missing behavior is ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What should happen after this feature is implemented?
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Current behavior
+      description: What happens now instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / request samples
+      description: Include sample request/response payloads or UI traces if relevant.
+      render: shell
+
+  - type: input
+    id: request_id
+    attributes:
+      label: request_id (if applicable)
+      description: Include one or more request IDs from related failures.
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Suggested endpoint, UX, data model, or rollout strategy.
+    validations:
+      required: true

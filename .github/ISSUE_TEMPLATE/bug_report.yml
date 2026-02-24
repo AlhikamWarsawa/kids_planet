@@ -1,0 +1,81 @@
+name: Bug report
+description: Report a reproducible defect in API, web, DB, or infra behavior.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please include reproducible details and relevant `request_id` values for API errors.
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      description: Select the highest observed impact.
+      options:
+        - critical
+        - high
+        - medium
+        - low
+    validations:
+      required: true
+
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Environment
+      options:
+        - local (docker-compose)
+        - dev
+        - staging
+        - production
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Exact steps, inputs, and endpoints used.
+      placeholder: |
+        1. POST /api/sessions/start with {...}
+        2. POST /api/leaderboard/submit with {...}
+        3. Observe response
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+
+  - type: input
+    id: request_id
+    attributes:
+      label: request_id (if available)
+      description: Copy from `error.request_id` or `X-Request-ID` response header.
+      placeholder: e.g. 7dc3f4f0-7f95-4d79-8ce8-57f4f62f0d78
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / traces / screenshots
+      description: Include relevant API logs, browser console output, SQL/Valkey traces.
+      render: shell
+
+  - type: textarea
+    id: additional_context
+    attributes:
+      label: Additional context
+      description: Related PRs, commits, or regression window.

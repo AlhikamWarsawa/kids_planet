@@ -1,7 +1,7 @@
 g:
 	git pull
 	git add .
-	git commit -m "Error Handling + Fix Bug"
+	git commit -m "Finalization + Documentation"
 	git push
 
 dev:
