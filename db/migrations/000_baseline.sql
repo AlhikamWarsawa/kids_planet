@@ -214,12 +214,8 @@ CREATE TABLE IF NOT EXISTS leaderboard_submissions
     score                INT          NOT NULL,
     ip_hash              TEXT,
     user_agent_hash      TEXT,
-    flagged              BOOLEAN      NOT NULL DEFAULT FALSE,
-    flag_reason          TEXT,
     created_at           TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     updated_at           TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
-    removed_by_admin_id  BIGINT,
-    removed_at           TIMESTAMPTZ,
 
     CONSTRAINT fk_leaderboard_submissions_game
         FOREIGN KEY (game_id)
@@ -236,11 +232,6 @@ CREATE TABLE IF NOT EXISTS leaderboard_submissions
             REFERENCES sessions (id)
             ON DELETE SET NULL,
 
-    CONSTRAINT fk_leaderboard_submissions_removed_by_admin
-        FOREIGN KEY (removed_by_admin_id)
-            REFERENCES users (id)
-            ON DELETE SET NULL,
-
     CONSTRAINT ck_leaderboard_submissions_score_non_negative
         CHECK (score >= 0)
 );
@@ -248,19 +239,8 @@ CREATE TABLE IF NOT EXISTS leaderboard_submissions
 CREATE INDEX IF NOT EXISTS idx_lb_game_created_at
     ON leaderboard_submissions (game_id, created_at DESC);
 
-CREATE INDEX IF NOT EXISTS idx_lb_flagged_created_at
-    ON leaderboard_submissions (flagged, created_at DESC);
-
-CREATE INDEX IF NOT EXISTS idx_lb_removed_at
-    ON leaderboard_submissions (removed_at DESC)
-    WHERE removed_at IS NOT NULL;
-
 CREATE INDEX IF NOT EXISTS idx_lb_game_score
     ON leaderboard_submissions (game_id, score DESC);
-
-CREATE INDEX IF NOT EXISTS idx_lb_flagged
-    ON leaderboard_submissions (flagged)
-    WHERE flagged = TRUE;
 
 DROP TRIGGER IF EXISTS trg_lb_set_updated_at ON leaderboard_submissions;
 CREATE TRIGGER trg_lb_set_updated_at

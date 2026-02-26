@@ -123,21 +123,12 @@ export PLAY_TOKEN="$(curl -sS -X POST "$API/sessions/start" \
 | `/api/admin/education-categories` | POST | `BearerAuth` (admin) | `{name,icon?,color?}` | `{data:EducationCategoryWire}` | `400`, `401`, `403`, `500` |
 | `/api/admin/education-categories/{id}` | PUT | `BearerAuth` (admin) | `{name?,icon?,color?}` | `{data:EducationCategoryWire}` | `400`, `401`, `403`, `404`, `500` |
 | `/api/admin/education-categories/{id}` | DELETE | `BearerAuth` (admin) | none | `{data:{deleted:true}}` | `400`, `401`, `403`, `404`, `500` |
-| `/api/admin/moderation/flagged-submissions` | GET | `BearerAuth` (admin) | `limit?` query | `{data:{items:[...]}}` | `400`, `401`, `403`, `500` |
-| `/api/admin/moderation/flagged` | GET | `BearerAuth` (admin) | `limit?` query | `{data:{items:[...]}}` | `400`, `401`, `403`, `500` |
-| `/api/admin/moderation/remove-score` | POST | `BearerAuth` (admin) | `{submission_id:number|string}` | `{data:{ok:true}}` | `400`, `401`, `403`, `404`, `500` |
 
 ## Key Curl Tests for New/Updated APIs
 
 ```bash
 # admin ping
 curl -si "$API/admin/ping" -H "Authorization: Bearer $ADMIN_TOKEN"
-
-# moderation alias endpoint
-curl -si "$API/admin/moderation/flagged?limit=20" -H "Authorization: Bearer $ADMIN_TOKEN"
-
-# moderation canonical endpoint
-curl -si "$API/admin/moderation/flagged-submissions?limit=20" -H "Authorization: Bearer $ADMIN_TOKEN"
 
 # leaderboard self with play token
 curl -si "$API/leaderboard/1/self?period=daily&scope=game" \

@@ -71,7 +71,7 @@ Seed/DB bootstrap is documented in `docs/RUNBOOK.md`.
 
 Use Conventional Commits:
 
-- `feat(api): add admin moderation filter`
+- `feat(api): add admin game publish validation`
 - `fix(web): handle player history empty state`
 - `docs(security): extend zip-slip test matrix`
 - `refactor(api): simplify leaderboard key resolver`

@@ -142,7 +142,7 @@ Global fail conditions:
 - keep connection pool sized to workload; monitor lock waits and sequential scans
 
 ### Valkey
-- leaderboard read is Valkey-backed; watch memory and key cardinality (`lb:*`, `rl:*`, `ac:*`)
+- leaderboard read is Valkey-backed; watch memory and key cardinality (`lb:*`, `rl:*`)
 - validate TTL behavior to avoid stale/high-cardinality key buildup
 
 ### MinIO

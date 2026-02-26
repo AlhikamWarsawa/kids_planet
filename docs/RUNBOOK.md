@@ -80,66 +80,16 @@ LIMIT 10;
 
 ## Admin Flow
 
-### Login + Dashboard + Moderation action
+### Login + Dashboard
 - [ ] `POST /api/auth/admin/login` returns `200` with `data.access_token`
 - [ ] `GET /api/admin/dashboard/overview` returns `200` with metrics (`sessions_today`, `top_games`, `total_active_games`, `total_players`)
-- [ ] `GET /api/admin/moderation/flagged-submissions` returns `200` and flagged rows are visible
-- [ ] `POST /api/admin/moderation/remove-score` with `submission_id` returns `200` and `{ "data": { "ok": true } }`
-- [ ] Leaderboard no longer contains removed member after moderation
 
-## Anti-Cheat & Rate Limit
+## Rate Limit
 
 ### Burst submit -> 429
 - [ ] Start one session and reuse same play token + guest id
 - [ ] Send >30 `POST /api/leaderboard/submit` requests within 1 minute
 - [ ] At least one request returns `429 RATE_LIMITED`
-
-### High score -> flagged
-- [ ] Submit score `> 1000000` (e.g. `1000001`) with valid play token + guest header
-- [ ] Response stays success (`200`) but record is flagged in DB:
-
-```sql
-SELECT id, game_id, score, flagged, flag_reason, removed_at
-FROM leaderboard_submissions
-ORDER BY id DESC
-LIMIT 20;
-```
-
-- [ ] `flagged = true` and `flag_reason` contains `score_out_of_bounds`
-
-### Flagged appears in admin
-- [ ] `GET /api/admin/moderation/flagged-submissions` includes that submission id
-
-## Moderation
-
-### Endpoint checks
-- [ ] `GET /api/admin/moderation/flagged-submissions` (or alias `/api/admin/moderation/flagged`) returns `200`
-- [ ] `POST /api/admin/moderation/remove-score` with body `{ "submission_id": "<id>" }` returns `200`
-
-### DB fields updated
-After remove-score:
-
-```sql
-SELECT id, flagged, flag_reason, removed_by_admin_id, removed_at, updated_at
-FROM leaderboard_submissions
-WHERE id = <submission_id>;
-```
-
-- [ ] `flagged = true`
-- [ ] `flag_reason = 'removed_by_admin'`
-- [ ] `removed_by_admin_id` is set
-- [ ] `removed_at` is set
-
-### Valkey ZREM effect
-Member format is `g:<guest_id>`.
-
-```bash
-docker exec planet_valkey valkey-cli KEYS 'lb:game:*'
-docker exec planet_valkey valkey-cli ZSCORE "lb:game:<game_id>:d:<yyyymmdd>" "g:<guest_id>"
-docker exec planet_valkey valkey-cli ZSCORE "lb:game:<game_id>:w:<yyyyww>" "g:<guest_id>"
-```
-
-- [ ] `ZSCORE` is nil for removed member on active daily/weekly keys
 
 ## Popular Sort
 
@@ -165,9 +115,6 @@ Folder: **MVP Smoke Tests**
 - [ ] `track event` success (`200/201`)
 - [ ] `submit score` success (`200/201`)
 - [ ] `leaderboard read` success (`200/201`)
-- [ ] `admin flagged list` success (`200/201`)
-- [ ] `remove score` success (`200/201`)
-- [ ] `leaderboard read again` success (`200/201`)
 - [ ] No unexpected 5xx responses in smoke run
 
 ## Security Verification

@@ -3,7 +3,6 @@ package services
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"strings"
 	"time"
 
@@ -19,12 +18,6 @@ type LeaderboardService struct {
 	valkey         *clients.Valkey
 	submissionRepo *repos.SubmissionRepo
 }
-
-const (
-	maxLeaderboardScore   = 1_000_000
-	suspiciousBurstLimit  = 8
-	suspiciousBurstWindow = 10 * time.Second
-)
 
 func NewLeaderboardService(valkey *clients.Valkey, submissionRepo *repos.SubmissionRepo) *LeaderboardService {
 	return &LeaderboardService{
@@ -70,25 +63,6 @@ func (s *LeaderboardService) SubmitScore(
 	tokenPlayerID = normalizePlayerID(tokenPlayerID)
 	sessionID = strings.TrimSpace(sessionID)
 
-	flagReasons := make([]string, 0, 2)
-	if req.Score > maxLeaderboardScore {
-		flagReasons = append(flagReasons, "score_out_of_bounds")
-	}
-	if sessionID == "" {
-		flagReasons = append(flagReasons, "missing_session_id")
-	}
-
-	if sessionID != "" && s.valkey != nil {
-		key := "ac:leaderboard:submit:burst:" + sessionID
-		count, err := s.valkey.IncrWithTTL(ctx, key, suspiciousBurstWindow)
-		if err == nil && count > int64(suspiciousBurstLimit) {
-			flagReasons = append(flagReasons, "rate_suspicious")
-		}
-	}
-
-	flagged := len(flagReasons) > 0
-	flagReason := strings.Join(flagReasons, ",")
-
 	member := resolveSubmissionMember(tokenPlayerID, sessionID, guestID)
 	if member == "" {
 		e := utils.ErrUnauthorized()
@@ -104,8 +78,6 @@ func (s *LeaderboardService) SubmitScore(
 		Score:         req.Score,
 		IPHash:        nullString(ipHash),
 		UserAgentHash: nullString(userAgentHash),
-		Flagged:       flagged,
-		FlagReason:    nullString(flagReason),
 	}
 
 	if _, err := s.submissionRepo.CreateSubmission(ctx, sub); err != nil {
@@ -217,50 +189,6 @@ func (s *LeaderboardService) GetSelf(
 		Period: period,
 		Scope:  scope,
 	}, nil
-}
-
-func (s *LeaderboardService) RemoveSubmissionFromLeaderboards(
-	ctx context.Context,
-	submission *repos.LeaderboardSubmission,
-) error {
-	if submission == nil {
-		return errors.New("submission is required")
-	}
-	if submission.GameID <= 0 {
-		return errors.New("game_id must be >= 1")
-	}
-	if s.valkey == nil {
-		return errors.New("valkey client is not configured")
-	}
-
-	member := strings.TrimSpace(submission.Member.String)
-	if member == "" && submission.SessionID.Valid {
-		sessionID := strings.TrimSpace(submission.SessionID.String)
-		if sessionID != "" {
-			member = "s:" + sessionID
-		}
-	}
-	if member == "" {
-		return errors.New("missing leaderboard member")
-	}
-
-	t := submission.CreatedAt
-	if t.IsZero() {
-		t = time.Now().UTC()
-	}
-
-	keys := []string{
-		clients.KeyGameDaily(submission.GameID, t),
-		clients.KeyGameWeekly(submission.GameID, t),
-		clients.KeyGlobalDaily(t),
-		clients.KeyGlobalWeekly(t),
-	}
-
-	if err := s.valkey.ZRemPipeline(ctx, keys, member); err != nil {
-		return err
-	}
-
-	return nil
 }
 
 func (s *LeaderboardService) upsertIfHigher(

@@ -121,8 +121,4 @@ func Register(app *fiber.App, deps Deps) {
 	adminGroup.Put("/education-categories/:id<int>", adminCategories.UpdateEducation)
 	adminGroup.Delete("/education-categories/:id<int>", adminCategories.DeleteEducation)
 
-	adminModeration := admin.NewModerationHandler(submissionRepo, leaderboardSvc)
-	adminGroup.Get("/moderation/flagged-submissions", adminModeration.ListFlagged)
-	adminGroup.Get("/moderation/flagged", adminModeration.ListFlagged)
-	adminGroup.Post("/moderation/remove-score", adminModeration.RemoveScore)
 }
